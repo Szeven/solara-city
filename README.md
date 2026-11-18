@@ -1,3 +1,5 @@
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+
 # Solara City
 
 [![make.fun bounty](https://img.shields.io/badge/make.fun-gta6--01-blue)](https://make.fun/bounty/gta6-01)
@@ -99,3 +101,5 @@ main.ts                 the entry program: copies game/ + screenshots/ to
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
