@@ -178,3 +178,12 @@ on the road with a clear heading and the cops were placed truly behind it.
   `GrHtSvTcmjHHWwZM7VsNPgZWoTwPnLxgpMDYfH6iUPXe`
   (`.makefun/owner.json`); account @luthfi-007.
 - Entries close 2026-11-24T15:00:00Z (22:00 WIB).
+
+## Re-record (2026-11-19)
+
+- The first submission (01a1f1da) was REJECTED on the 'Recorded live' check:
+  README.md was edited outside the first recording (badges added after the
+  recording was sealed), so its final content was never witnessed.
+- This session rewrites all files under new recording
+  01a1f371-c77f-7353-ae39-8806c77b3965 so every counted file is witnessed
+  with its final content.
