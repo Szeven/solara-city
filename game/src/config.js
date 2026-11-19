@@ -1,152 +1,140 @@
-// Solara City — every number that tunes the game, in one file.
-// The city is a 9-by-9 grid of blocks on the coast. Roads are 14 m wide and blocks
-// 36 m, so block centres sit 50 m apart; intersections run from -225 to +225 on
-// both axes. West of the first road is a beach strip, then the ocean.
-export const STEP = 1 / 60;
-export const SAVE_KEY = 'solara-city.save.v1';
+// Solara City — tuning, places and mission data.
+// Every number here is the game's own design: a 9x9-block coastal city,
+// ocean to the west, roads 14 m wide on a 50 m pitch.
 
 export const CITY = {
   blocks: 9,
-  block: 36,
-  road: 14,
-  half: 225,
-  beachX: -239,
-  oceanX: -260,
+  pitch: 50,
+  roadWidth: 14,
+  blockSize: 36,
+  half: 225, // the city spans -225..225 on both axes
+  oceanEdge: -225, // west of this line is water
+  beachWidth: 30,
+};
+
+// Road centrelines, one every 50 m from -225 to 225.
+export const ROAD_LINES = [-225, -175, -125, -75, -25, 25, 75, 125, 175, 225];
+
+// Named places, all on road intersections so markers sit in the open.
+export const PLACES = {
+  docks: { x: -175, z: 175, name: 'Docks' },
+  marina: { x: -175, z: -175, name: 'Marina' },
+  garage: { x: 175, z: 125, name: 'Sunset Garage' },
+  club: { x: 125, z: -125, name: 'Club Mirage' },
+  causeway: { x: -25, z: -175, name: 'Causeway' },
+  plaza: { x: 25, z: 25, name: 'Meridian Plaza' },
+  safehouse: { x: -125, z: 125, name: 'Safehouse' },
+  hospital: { x: 75, z: -125, name: 'General Hospital' },
+  beach: { x: -200, z: 25, name: 'Solara Beach' },
 };
 
 export const PLAYER = {
-  radius: 0.55,
+  walkSpeed: 6,
+  runSpeed: 10.5,
+  radius: 0.45,
   height: 1.8,
-  walk: 5.2,
-  run: 9.0,
   health: 100,
-  ammo: 12,
-  reload: 1.4,
-  enterRange: 3.2,
-  touchRange: 3.0,
+  turnSpeed: 9,
 };
 
 export const CAR = {
-  accel: 16,
-  brake: 30,
-  reverse: 9,
-  top: 34,
-  topReverse: 9,
+  accel: 22,
+  brake: 34,
+  reverseMax: 9,
+  forwardMax: 38,
   steer: 1.9,
-  grip: 6.5,
-  length: 4.4,
-  width: 2.0,
-  health: 100,
-  hitDamage: 34,
+  grip: 6,
+  radius: 1.6,
 };
 
-export const TRAFFIC = { count: 14, speed: 9, gap: 9, despawn: 260, spawn: 200 };
-export const PEDS = { count: 26, walk: 1.6, flee: 4.2, despawn: 220 };
-
+// Wanted: heat rises with crimes, cools after 22 quiet seconds.
 export const WANTED = {
-  max: 5,
-  steal: 1,
-  runOver: 1,
-  shootPed: 2,
-  shootCop: 2,
-  smashCopCar: 1,
-  coolSeconds: 22,
-  maxCars: 5,
-  copTop: 26,
-  bustRange: 3.2,
-  bustTime: 1.6,
-  officerSpeed: 5.6,
-  officerHealth: 2,
+  maxStars: 5,
+  coolAfter: 22,
+  coolRate: 0.35, // stars per second once cooling
+  stealHeat: 1.0,
+  shootHeat: 0.6,
+  hitPedHeat: 1.0,
+  hitCopHeat: 1.5,
+  hitCarHeat: 0.2,
+  copCars: [0, 1, 2, 3, 4, 5], // cop cars out, by star
+  copFoot: [0, 0, 1, 2, 3, 4], // officers on foot, by star
 };
 
+export const WEAPON = {
+  ammo: 12,
+  reloadSeconds: 1.4,
+  range: 90,
+  damage: 34,
+  fireSeconds: 0.22,
+};
+
+// The four jobs The Duchess hands out, in story order.
 export const MISSIONS = [
   {
     id: 'm1',
     name: 'The First Pickup',
     reward: 500,
-    brief: 'The Duchess runs Club Mirage, and she needs a courier who does not ask questions. Pick up the package at the docks and bring it to her club.',
-    objectives: [
-      { type: 'goto', at: 'docks', text: 'Get to the docks pickup' },
-      { type: 'interact', at: 'docks', text: 'Pick up the package (E)' },
-      { type: 'goto', at: 'club', text: 'Deliver it to The Duchess at Club Mirage' },
+    giver: 'The Duchess',
+    briefing: 'A package is waiting at the Docks. Walk in, pick it up, bring it to the Safehouse. No noise.',
+    steps: [
+      { kind: 'goto', place: 'docks', text: 'Go to the Docks' },
+      { kind: 'pickup', place: 'docks', text: 'Pick up the package (E)' },
+      { kind: 'goto', place: 'safehouse', text: 'Deliver to the Safehouse' },
+      { kind: 'deliver', place: 'safehouse', text: 'Hand it over (E)' },
     ],
   },
   {
     id: 'm2',
     name: 'Hot Wheels',
     reward: 900,
-    brief: 'A Comet GT sits at the marina with the keys in it and its owner losing money at the casino. Bring it to the garage — quietly, if you can.',
-    objectives: [
-      { type: 'goto', at: 'marina', text: 'Find the Comet GT at the marina' },
-      { type: 'steal', at: 'marina', text: 'Take the Comet GT (E)' },
-      { type: 'goto', at: 'garage', text: 'Deliver the Comet GT to the garage' },
+    giver: 'The Duchess',
+    briefing: 'A Comet GT is parked at the Marina. Take it. The Breakers want it at the Garage — do not scratch it.',
+    steps: [
+      { kind: 'goto', place: 'marina', text: 'Go to the Marina' },
+      { kind: 'steal', place: 'marina', text: 'Steal the Comet GT (E)' },
+      { kind: 'goto', place: 'garage', text: 'Drive it to Sunset Garage' },
+      { kind: 'deliver', place: 'garage', text: 'Hand over the Comet GT (E)' },
     ],
   },
   {
     id: 'm3',
     name: 'Breaker Down',
     reward: 1400,
-    brief: 'The Breakers grabbed a Duchess shipment. Their courier is crossing the causeway. Stop the car, take the briefcase, bring it home.',
-    objectives: [
-      { type: 'goto', at: 'causeway', text: 'Reach the causeway ambush' },
-      { type: 'shoot', at: 'causeway', text: 'Stop the Breaker courier car' },
-      { type: 'interact', at: 'causeway', text: 'Grab the briefcase (E)' },
-      { type: 'goto', at: 'club', text: 'Take the briefcase to The Duchess' },
+    giver: 'The Duchess',
+    briefing: 'The Breakers are leaning on our drivers at the Causeway. Go there, clear them out, then get to Club Mirage.',
+    steps: [
+      { kind: 'goto', place: 'causeway', text: 'Go to the Causeway' },
+      { kind: 'clear', place: 'causeway', text: 'Clear out the Breakers' },
+      { kind: 'goto', place: 'club', text: 'Report to Club Mirage' },
+      { kind: 'deliver', place: 'club', text: 'Tell The Duchess (E)' },
     ],
   },
   {
     id: 'm4',
     name: 'Payday',
     reward: 2500,
-    brief: 'One last job: the bank drop is at the plaza. Grab the money bag and get to the safehouse. The whole city will be watching.',
-    objectives: [
-      { type: 'goto', at: 'plaza', text: 'Reach the bank drop at the plaza' },
-      { type: 'interact', at: 'plaza', text: 'Grab the money bag (E)' },
-      { type: 'goto', at: 'safehouse', text: 'Escape to the safehouse' },
+    giver: 'The Duchess',
+    briefing: 'One last run. Pick up the payout at the Plaza, lose the tail, and bring it home to the Safehouse.',
+    steps: [
+      { kind: 'goto', place: 'plaza', text: 'Go to Meridian Plaza' },
+      { kind: 'pickup', place: 'plaza', text: 'Pick up the payout (E)' },
+      { kind: 'escape', place: 'safehouse', text: 'Lose the heat, then reach the Safehouse' },
+      { kind: 'deliver', place: 'safehouse', text: 'Stash the payout (E)' },
     ],
   },
 ];
 
-// Named places, in world metres: x east, z south, y is the ground.
-// Every place sits on a road intersection, so a mission marker and its
-// beacon stand in the open (reachable and visible) and the special cars
-// that spawn beside them start on tarmac, not inside a block.
-export const PLACES = {
-  docks: { x: -175, z: 175, label: 'Docks' },
-  club: { x: 125, z: -125, label: 'Club Mirage' },
-  marina: { x: -175, z: -175, label: 'Marina' },
-  garage: { x: 175, z: 125, label: 'Garage' },
-  causeway: { x: -25, z: -175, label: 'Causeway' },
-  plaza: { x: 25, z: 25, label: 'Plaza' },
-  safehouse: { x: -125, z: 125, label: 'Safehouse' },
-  hospital: { x: 75, z: -125, label: 'Hospital' },
+export const COLORS = {
+  sky: 0x87b5d6,
+  sun: 0xffe3b3,
+  ocean: 0x2e6f8e,
+  sand: 0xd9c08a,
+  grass: 0x5d8a4a,
+  road: 0x33363b,
+  sidewalk: 0x9a9a92,
+  building: [0xc9a06a, 0x8fa3b0, 0xb0705f, 0x7d8a6a, 0xa89a7d, 0x6f7f95],
+  car: [0xc23b2e, 0x2e6fc2, 0xe0a92e, 0x3fae6a, 0x7a4fb0, 0xd8d8d8, 0x222222],
+  cop: 0x1d2f4d,
+  beacon: 0xffd34d,
 };
-
-export const PALETTE = {
-  sky: 0x87bfe8,
-  fog: 0x9fc8e8,
-  sun: 0xfff2d0,
-  hemiSky: 0xbfd9ff,
-  hemiGround: 0xc9a06a,
-  ocean: 0x2a7fa8,
-  sand: 0xe8d29a,
-  asphalt: 0x3a3f46,
-  sidewalk: 0x9aa0a8,
-  grass: 0x5da24a,
-  building: ['#e8b4b8', '#a8d8c8', '#f2d38a', '#b8c8e8', '#e8a87c', '#d8b8e8'],
-  glass: ['#5a7a9a', '#3a5a7a', '#6a8aa8'],
-  car: [0xd84a4a, 0x3a7ad8, 0xe8c832, 0x4ad87a, 0xe8e8e8, 0x2a2a2e, 0xd87a2a, 0x8a4ad8],
-  taxi: 0xe8c832,
-  cop: 0x2a4ad8,
-  copWhite: 0xf2f2f2,
-  player: 0x2a9ad8,
-  playerPants: 0x2a2a3a,
-  skin: 0xd8a878,
-  pedShirt: [0xd84a6a, 0x4ad8a8, 0xe8e8e8, 0x7a5ad8, 0x2a8a5a, 0xd8a03a],
-  marker: 0xffd23a,
-  markerRing: 0xff6a3a,
-};
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-export const TITLE = 'SOLARA CITY';
-export const TAGLINE = 'A sun-soaked open-world crime story';

@@ -1,104 +1,164 @@
-// The HUD: cash, wanted stars, health, ammo, the mission line, speed, messages
-// and the minimap live in the DOM around the canvas, so they stay crisp at any
-// window size. The title screen and the end screens are DOM panels too.
+// HUD: cash, wanted stars, health, ammo, speed, mission line, toast
+// messages, title / pause / busted screens, and a live minimap drawn on a
+// 2D canvas.
 
-import { WANTED, TITLE, TAGLINE } from './config.js';
+export function createHud(callbacks) {
+  const el = (id) => document.getElementById(id);
+  const cashEl = el('hud-cash');
+  const starsEl = el('hud-stars');
+  const healthFill = el('hud-health-fill');
+  const ammoEl = el('hud-ammo');
+  const speedEl = el('hud-speed');
+  const missionEl = el('hud-mission');
+  const toastEl = el('hud-toast');
+  const map = el('minimap');
+  const mapCtx = map.getContext('2d');
+  const titleEl = el('title-screen');
+  const pauseEl = el('pause-screen');
+  const bustedEl = el('busted-screen');
+  const bustedText = el('busted-text');
 
-const MISSION_NAMES = ['The First Pickup', 'Hot Wheels', 'Breaker Down', 'Payday'];
+  let toastTimer = 0;
+  const toastQueue = [];
 
-export function createHud() {
-  const $ = (id) => document.getElementById(id);
-  const el = {
-    cash: $('hud-cash'),
-    stars: $('hud-stars'),
-    health: $('hud-health-fill'),
-    ammo: $('hud-ammo'),
-    mission: $('hud-mission'),
-    objective: $('hud-objective'),
-    speed: $('hud-speed'),
-    message: $('hud-message'),
-    prompt: $('hud-prompt'),
-    title: $('screen-title'),
-    panel: $('screen-panel'),
-    crosshair: $('crosshair'),
-  };
-  let lastCash = -1;
-  let lastStars = -1;
-  let lastHealth = -1;
-  let lastAmmo = -1;
-  let lastObj = '';
-  let lastMsg = '';
+  // Title screen job buttons.
+  document.querySelectorAll('[data-mission]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      callbacks.onStartMission(Number(btn.dataset.mission));
+    });
+  });
+  el('btn-freeroam')?.addEventListener('click', () => callbacks.onFreeRoam());
+  el('btn-continue')?.addEventListener('click', () => callbacks.onContinue());
+  el('btn-resume')?.addEventListener('click', () => callbacks.onResume());
+  el('btn-restart')?.addEventListener('click', () => callbacks.onRestart());
 
-  function starLine(wanted) {
-    let s = '';
-    for (let i = 0; i < WANTED.max; i++) s += i < wanted ? '★' : '☆';
-    return s;
+  function drawMinimap(s) {
+    const W = map.width;
+    const H = map.height;
+    const span = 560; // world -280..280
+    const toX = (x) => ((x + span / 2) / span) * W;
+    const toY = (z) => ((z + span / 2) / span) * H;
+    mapCtx.clearRect(0, 0, W, H);
+    mapCtx.fillStyle = '#10151c';
+    mapCtx.fillRect(0, 0, W, H);
+    // Ocean west.
+    mapCtx.fillStyle = '#245a75';
+    mapCtx.fillRect(0, 0, toX(-225), H);
+    // Roads.
+    mapCtx.strokeStyle = '#3a3f46';
+    mapCtx.lineWidth = 3;
+    for (const line of s.roadLines) {
+      mapCtx.beginPath();
+      mapCtx.moveTo(toX(-225), toY(line));
+      mapCtx.lineTo(toX(225), toY(line));
+      mapCtx.stroke();
+      mapCtx.beginPath();
+      mapCtx.moveTo(toX(line), toY(-225));
+      mapCtx.lineTo(toX(line), toY(225));
+      mapCtx.stroke();
+    }
+    // Buildings.
+    mapCtx.fillStyle = '#565d66';
+    for (const c of s.colliders) {
+      mapCtx.fillRect(toX(c.minX), toY(c.minZ), toX(c.maxX) - toX(c.minX), toY(c.maxZ) - toY(c.minZ));
+    }
+    // Traffic.
+    mapCtx.fillStyle = '#9aa2ad';
+    for (const car of s.cars) {
+      mapCtx.fillRect(toX(car.pos.x) - 1.5, toY(car.pos.z) - 1.5, 3, 3);
+    }
+    // Cops.
+    mapCtx.fillStyle = '#3b82f6';
+    for (const cop of s.cops) {
+      mapCtx.beginPath();
+      mapCtx.arc(toX(cop.pos.x), toY(cop.pos.z), 3, 0, Math.PI * 2);
+      mapCtx.fill();
+    }
+    // Mission marker.
+    if (s.missionTarget) {
+      const pulse = 4 + Math.sin(performance.now() / 240) * 1.5;
+      mapCtx.fillStyle = '#ffd34d';
+      mapCtx.beginPath();
+      mapCtx.arc(toX(s.missionTarget.x), toY(s.missionTarget.z), pulse, 0, Math.PI * 2);
+      mapCtx.fill();
+    }
+    // Player arrow.
+    const px = toX(s.playerPos.x);
+    const py = toY(s.playerPos.z);
+    mapCtx.save();
+    mapCtx.translate(px, py);
+    mapCtx.rotate(Math.atan2(Math.sin(s.playerHeading), Math.cos(s.playerHeading)) + Math.PI);
+    mapCtx.fillStyle = '#ffffff';
+    mapCtx.beginPath();
+    mapCtx.moveTo(0, -6);
+    mapCtx.lineTo(4.5, 5);
+    mapCtx.lineTo(-4.5, 5);
+    mapCtx.closePath();
+    mapCtx.fill();
+    mapCtx.restore();
   }
 
   return {
-    update(world) {
-      if (world.cash !== lastCash) {
-        el.cash.textContent = `$${world.cash.toLocaleString()}`;
-        lastCash = world.cash;
+    update(s, dt) {
+      cashEl.textContent = `$${Math.floor(s.cash).toLocaleString('en-US')}`;
+      let stars = '';
+      for (let i = 0; i < 5; i++) stars += i < s.stars ? '★' : '☆';
+      starsEl.textContent = stars;
+      starsEl.className = s.stars > 0 ? 'stars hot' : 'stars';
+      healthFill.style.width = `${Math.max(0, s.health)}%`;
+      healthFill.style.background = s.health > 50 ? '#58b368' : s.health > 25 ? '#e0a92e' : '#d95f4b';
+      ammoEl.textContent = s.reloading ? 'RELOADING…' : `AMMO ${s.ammo} / 12`;
+      speedEl.textContent = s.inCar ? `${Math.round(Math.abs(s.speedKmh))} km/h` : '';
+      missionEl.textContent = s.missionText || 'Free Roam — press 1-4 for a job, E to steal a car';
+      if (toastTimer > 0) {
+        toastTimer -= dt;
+        if (toastTimer <= 0) {
+          const next = toastQueue.shift();
+          if (next) {
+            toastEl.textContent = next.text;
+            toastTimer = next.seconds;
+          } else {
+            toastEl.textContent = '';
+          }
+        }
       }
-      const w = world.police.wanted;
-      if (w !== lastStars) {
-        el.stars.textContent = starLine(w);
-        el.stars.className = w > 0 ? 'wanted-hot' : '';
-        lastStars = w;
-      }
-      const hp = Math.round(world.player.health);
-      if (hp !== lastHealth) {
-        el.health.style.width = `${hp}%`;
-        el.health.className = hp < 30 ? 'low' : '';
-        lastHealth = hp;
-      }
-      const ammo = world.player.inCar ? '—' : `${world.player.ammo} / 12`;
-      if (ammo !== lastAmmo) {
-        el.ammo.textContent = ammo;
-        lastAmmo = ammo;
-      }
-      if (world.objectiveText !== lastObj) {
-        el.mission.textContent = world.missionName;
-        el.objective.textContent = world.objectiveText;
-        lastObj = world.objectiveText;
-      }
-      if (world.message !== lastMsg) {
-        el.message.textContent = world.message;
-        lastMsg = world.message;
-      }
-      el.message.style.opacity = world.messageT > 0 ? 1 : 0;
-      const speed = world.player.inCar && world.player.car ? Math.round(Math.abs(world.player.car.speed) * 3.6) : 0;
-      el.speed.textContent = world.player.inCar ? `${speed} km/h` : '';
-      el.crosshair.style.display = world.player.inCar ? 'none' : 'block';
-      el.prompt.textContent = world.promptText || '';
+      drawMinimap(s);
     },
-    showPanel(html) {
-      el.panel.innerHTML = html;
-      el.panel.style.display = 'block';
+    toast(text, seconds = 3) {
+      // A toast already showing queues behind it instead of being lost.
+      if (toastTimer > 0) {
+        toastQueue.push({ text, seconds });
+        return;
+      }
+      toastEl.textContent = text;
+      toastTimer = seconds;
     },
-    hidePanel() {
-      el.panel.style.display = 'none';
-    },
-    titleScreen(save) {
-      const done = save && save.done ? save.done : [];
-      const rows = ['m1', 'm2', 'm3', 'm4']
-        .map((id, i) => `<div class="mission-row">${done.includes(id) ? '✓' : '○'} ${i + 1}. ${MISSION_NAMES[i]}${done.includes(id) ? ' — done' : ''}</div>`)
-        .join('');
-      el.title.innerHTML = `
-        <h1>${TITLE}</h1>
-        <p class="tagline">${TAGLINE}</p>
-        <p class="story">Jax Marlowe came back to Solara City broke. The Duchess, who runs Club Mirage,
-        has work for a wheelman she can trust — and the Breakers want him gone. Steal cars,
-        outrun the cops, finish the jobs, get paid.</p>
-        <div class="missions">${rows}</div>
-        <p class="controls">WASD move / drive · Mouse drag to look · E enter car / interact · Click shoot · R reload · P pause · M mute</p>
-        <p class="prompt-line">Press <b>1–4</b> to start a job, <b>Enter</b> for Free Roam${save ? ' · <b>C</b> to continue your save' : ''}</p>
-        ${save ? `<p class="save-line">Save: $${save.cash.toLocaleString()} · ${done.length}/4 jobs done</p>` : ''}`;
-      el.title.style.display = 'block';
+    showTitle(save) {
+      titleEl.style.display = 'flex';
+      map.style.display = 'none';
+      const cont = el('btn-continue');
+      if (cont) cont.style.display = save ? 'block' : 'none';
+      const sub = el('title-save');
+      if (sub && save) {
+        sub.textContent = `Continue — $${Math.floor(save.cash).toLocaleString('en-US')}, ${save.done.length} job${save.done.length === 1 ? '' : 's'} done`;
+      }
     },
     hideTitle() {
-      el.title.style.display = 'none';
+      titleEl.style.display = 'none';
+      map.style.display = 'block';
+    },
+    showPause(show) {
+      pauseEl.style.display = show ? 'flex' : 'none';
+    },
+    showBusted(cashLost) {
+      bustedText.textContent =
+        cashLost > 0
+          ? `The police booked you. Bail cost $${Math.floor(cashLost).toLocaleString('en-US')}.`
+          : 'The police booked you.';
+      bustedEl.style.display = 'flex';
+    },
+    hideBusted() {
+      bustedEl.style.display = 'none';
     },
   };
 }

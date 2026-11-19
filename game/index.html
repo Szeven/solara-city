@@ -1,71 +1,95 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solara City — an open-world crime story</title>
+<title>Solara City — an open-world crime game</title>
+<meta name="description" content="Solara City — an original open-world crime game: steal cars, outrun the police, and work four jobs for The Duchess.">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1a24; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  .hud { position: fixed; color: #f2f5f7; text-shadow: 0 1px 3px rgba(0,0,0,0.8); pointer-events: none; z-index: 5; }
-  #hud-mission-box { top: 16px; left: 16px; max-width: 380px; }
-  #hud-mission { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #ffd23a; }
-  #hud-objective { font-size: 15px; margin-top: 2px; }
-  #hud-cash-box { top: 16px; right: 16px; text-align: right; }
-  #hud-cash { font-size: 26px; font-weight: 800; color: #7dff9a; }
-  #hud-stars { font-size: 22px; letter-spacing: 3px; color: #ffd23a; margin-top: 2px; }
-  #hud-stars.wanted-hot { color: #ff5040; }
-  #hud-minimap-box { left: 16px; bottom: 16px; }
-  #minimap { width: 180px; height: 180px; border: 2px solid rgba(255,255,255,0.35); border-radius: 50%; background: #0e1a24; }
-  #hud-stats { right: 16px; bottom: 16px; text-align: right; }
-  #hud-health { width: 200px; height: 12px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; overflow: hidden; margin-left: auto; }
-  #hud-health-fill { height: 100%; width: 100%; background: #4ad87a; }
-  #hud-health-fill.low { background: #ff5040; }
-  #hud-ammo { font-size: 18px; font-weight: 700; margin-top: 6px; }
-  #hud-speed { font-size: 18px; font-weight: 700; margin-top: 2px; color: #ffd23a; }
-  #hud-message { left: 50%; top: 72px; transform: translateX(-50%); font-size: 17px; font-weight: 600; text-align: center; transition: opacity 0.4s; background: rgba(0,0,0,0.45); padding: 6px 14px; border-radius: 8px; max-width: 640px; }
-  #hud-prompt { left: 50%; bottom: 120px; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: #ffd23a; }
-  #crosshair { left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); }
-  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,0.9); box-shadow: 0 0 3px rgba(0,0,0,0.9); }
-  #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
-  #crosshair::after { left: 0; top: 6px; width: 14px; height: 2px; }
-  .panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; width: min(620px, 92vw); background: rgba(10, 18, 26, 0.88); color: #f2f5f7; border: 1px solid rgba(255,210,58,0.5); border-radius: 14px; padding: 28px 32px; text-align: center; box-shadow: 0 12px 48px rgba(0,0,0,0.6); }
-  .panel h1 { margin: 0; font-size: 52px; letter-spacing: 4px; color: #ffd23a; }
-  .panel h2 { margin: 0 0 10px; font-size: 40px; letter-spacing: 3px; color: #ffd23a; }
-  .panel .tagline { font-size: 17px; color: #9fc8e8; margin: 6px 0 14px; }
-  .panel .story { font-size: 15px; line-height: 1.55; color: #dfe7ec; }
-  .panel .missions { text-align: left; margin: 16px auto; max-width: 420px; font-size: 15px; line-height: 1.9; }
-  .panel .controls { font-size: 13px; color: #9fb2bd; }
-  .panel .prompt-line { font-size: 16px; margin-top: 14px; }
-  .panel .save-line { font-size: 14px; color: #7dff9a; }
-  #screen-panel { display: none; }
-  #screen-title { display: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0e1218; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { display: block; width: 100vw; height: 100vh; }
+  .hud { position: fixed; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); z-index: 5; user-select: none; pointer-events: none; }
+  #hud-top-left { top: 14px; left: 16px; }
+  #hud-cash { font-size: 26px; font-weight: 800; letter-spacing: 0.5px; }
+  #hud-stars { font-size: 22px; letter-spacing: 3px; margin-top: 2px; }
+  #hud-stars.hot { color: #ffd34d; }
+  #hud-top-right { top: 14px; right: 16px; }
+  #minimap { width: 190px; height: 190px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; background: #10151c; }
+  #hud-bottom-left { bottom: 16px; left: 16px; }
+  #hud-health { width: 210px; height: 12px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; overflow: hidden; }
+  #hud-health-fill { height: 100%; width: 100%; background: #58b368; }
+  #hud-ammo { margin-top: 6px; font-size: 17px; font-weight: 700; }
+  #hud-bottom-right { bottom: 16px; right: 16px; font-size: 24px; font-weight: 800; text-align: right; }
+  #hud-mission { bottom: 52px; left: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 600; text-align: center; max-width: 80vw; }
+  #hud-toast { top: 22%; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: 700; text-align: center; max-width: 80vw; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 10; background: rgba(8, 12, 20, 0.72); color: #fff; text-align: center; }
+  .screen h1 { font-size: 64px; margin: 0 0 4px; letter-spacing: 4px; color: #ffd34d; text-shadow: 0 3px 18px rgba(0,0,0,0.7); }
+  .screen h2 { font-size: 18px; font-weight: 400; margin: 0 0 26px; color: #cfd8e3; max-width: 560px; line-height: 1.5; }
+  .screen .jobs { display: flex; flex-direction: column; gap: 10px; width: 340px; }
+  .screen button { pointer-events: auto; cursor: pointer; font-size: 17px; font-weight: 700; padding: 12px 18px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: #fff; }
+  .screen button:hover { background: rgba(255,211,77,0.85); color: #111; border-color: #ffd34d; }
+  .screen button.primary { background: #ffd34d; color: #111; border-color: #ffd34d; }
+  .screen .hint { margin-top: 22px; font-size: 13px; color: #9fb0c3; line-height: 1.7; }
+  #title-save { margin: 0 0 18px; font-size: 15px; color: #ffd34d; }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.min.js"
+  }
+}
+</script>
 </head>
 <body>
-<canvas id="game" aria-label="Solara City: an open-world crime game. Drive, steal cars, outrun the police, finish jobs for The Duchess."></canvas>
+<canvas id="game"></canvas>
+<noscript><p style="color:#fff">Solara City needs JavaScript to run.</p></noscript>
 
-<div class="hud" id="hud-mission-box"><div id="hud-mission">Free Roam</div><div id="hud-objective"></div></div>
-<div class="hud" id="hud-cash-box"><div id="hud-cash">$0</div><div id="hud-stars">☆☆☆☆☆</div></div>
-<div class="hud" id="hud-minimap-box"><canvas id="minimap" width="180" height="180"></canvas></div>
-<div class="hud" id="hud-stats">
-  <div id="hud-health"><div id="hud-health-fill"></div></div>
-  <div id="hud-ammo">12 / 12</div>
-  <div id="hud-speed"></div>
+<div class="hud" id="hud-top-left">
+  <div id="hud-cash">$0</div>
+  <div id="hud-stars" class="stars">☆☆☆☆☆</div>
 </div>
-<div class="hud" id="hud-message"></div>
-<div class="hud" id="hud-prompt"></div>
-<div class="hud" id="crosshair"></div>
+<div class="hud" id="hud-top-right">
+  <canvas id="minimap" width="190" height="190"></canvas>
+</div>
+<div class="hud" id="hud-bottom-left">
+  <div id="hud-health"><div id="hud-health-fill"></div></div>
+  <div id="hud-ammo">AMMO 12 / 12</div>
+</div>
+<div class="hud" id="hud-bottom-right"><span id="hud-speed"></span></div>
+<div class="hud" id="hud-mission"></div>
+<div class="hud" id="hud-toast"></div>
 
-<div class="panel" id="screen-title"></div>
-<div class="panel" id="screen-panel"></div>
+<div class="screen" id="title-screen">
+  <h1>SOLARA CITY</h1>
+  <h2>An open-world crime game. Steal cars, outrun the police, and work four jobs for The Duchess — the fixer who runs the night trade out of Club Mirage.</h2>
+  <p id="title-save"></p>
+  <div class="jobs">
+    <button data-mission="0">1 · The First Pickup — $500</button>
+    <button data-mission="1">2 · Hot Wheels — $900</button>
+    <button data-mission="2">3 · Breaker Down — $1,400</button>
+    <button data-mission="3">4 · Payday — $2,500</button>
+    <button id="btn-continue" class="primary">Continue</button>
+    <button id="btn-freeroam">Free Roam</button>
+  </div>
+  <div class="hint">WASD move / drive · Shift run · E steal &amp; interact · Mouse drag camera<br>Left click shoot · R reload · Space confirm · P pause · M mute</div>
+</div>
 
-<p id="status" role="status" aria-live="polite"></p>
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js" } }
-</script>
+<div class="screen" id="pause-screen">
+  <h1>PAUSED</h1>
+  <h2>Solara City waits for no one. Except now.</h2>
+  <div class="jobs">
+    <button id="btn-resume" class="primary">Resume</button>
+  </div>
+</div>
+
+<div class="screen" id="busted-screen">
+  <h1>BUSTED</h1>
+  <h2 id="busted-text">The police booked you.</h2>
+  <div class="jobs">
+    <button id="btn-restart" class="primary">Back on the streets</button>
+  </div>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
