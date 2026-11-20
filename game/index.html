@@ -4,92 +4,103 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Solara City — an open-world crime game</title>
-<meta name="description" content="Solara City — an original open-world crime game: steal cars, outrun the police, and work four jobs for The Duchess.">
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0e1218; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #game { display: block; width: 100vw; height: 100vh; }
-  .hud { position: fixed; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); z-index: 5; user-select: none; pointer-events: none; }
-  #hud-top-left { top: 14px; left: 16px; }
-  #hud-cash { font-size: 26px; font-weight: 800; letter-spacing: 0.5px; }
-  #hud-stars { font-size: 22px; letter-spacing: 3px; margin-top: 2px; }
-  #hud-stars.hot { color: #ffd34d; }
-  #hud-top-right { top: 14px; right: 16px; }
-  #minimap { width: 190px; height: 190px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; background: #10151c; }
-  #hud-bottom-left { bottom: 16px; left: 16px; }
-  #hud-health { width: 210px; height: 12px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; overflow: hidden; }
-  #hud-health-fill { height: 100%; width: 100%; background: #58b368; }
-  #hud-ammo { margin-top: 6px; font-size: 17px; font-weight: 700; }
-  #hud-bottom-right { bottom: 16px; right: 16px; font-size: 24px; font-weight: 800; text-align: right; }
-  #hud-mission { bottom: 52px; left: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 600; text-align: center; max-width: 80vw; }
-  #hud-toast { top: 22%; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: 700; text-align: center; max-width: 80vw; }
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 10; background: rgba(8, 12, 20, 0.72); color: #fff; text-align: center; }
-  .screen h1 { font-size: 64px; margin: 0 0 4px; letter-spacing: 4px; color: #ffd34d; text-shadow: 0 3px 18px rgba(0,0,0,0.7); }
-  .screen h2 { font-size: 18px; font-weight: 400; margin: 0 0 26px; color: #cfd8e3; max-width: 560px; line-height: 1.5; }
-  .screen .jobs { display: flex; flex-direction: column; gap: 10px; width: 340px; }
-  .screen button { pointer-events: auto; cursor: pointer; font-size: 17px; font-weight: 700; padding: 12px 18px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12); color: #fff; }
-  .screen button:hover { background: rgba(255,211,77,0.85); color: #111; border-color: #ffd34d; }
-  .screen button.primary { background: #ffd34d; color: #111; border-color: #ffd34d; }
-  .screen .hint { margin-top: 22px; font-size: 13px; color: #9fb0c3; line-height: 1.7; }
-  #title-save { margin: 0 0 18px; font-size: 15px; color: #ffd34d; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1b26; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { display: block; width: 100%; height: 100%; }
+  .hud { position: fixed; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); user-select: none; pointer-events: none; z-index: 5; }
+  #cash { top: 14px; left: 16px; font-size: 28px; font-weight: 800; }
+  #stars { top: 48px; left: 16px; font-size: 24px; letter-spacing: 2px; }
+  #health { bottom: 18px; left: 16px; width: 220px; }
+  #health .label { font-size: 12px; letter-spacing: 1px; opacity: .85; }
+  #health-bar { height: 12px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.5); border-radius: 3px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: #4caf50; }
+  #ammo { bottom: 18px; left: 250px; font-size: 18px; font-weight: 700; }
+  #speed { bottom: 18px; right: 20px; font-size: 26px; font-weight: 800; }
+  #mission { bottom: 18px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 600; background: rgba(0,0,0,.45); padding: 6px 14px; border-radius: 4px; white-space: nowrap; }
+  #minimap { top: 14px; right: 16px; width: 150px; height: 150px; border: 2px solid rgba(255,255,255,.6); border-radius: 4px; background: #0d1b26; }
+  #crosshair { top: 50%; left: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff; border-radius: 50%; box-shadow: 0 0 3px #000; }
+  #toast { top: 90px; left: 50%; transform: translateX(-50%); font-size: 18px; font-weight: 700; background: rgba(0,0,0,.6); padding: 8px 18px; border-radius: 4px; opacity: 0; transition: opacity .3s; white-space: nowrap; }
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,12,20,.72); z-index: 10; }
+  .panel { background: rgba(10,22,34,.92); border: 1px solid #2c4a63; border-radius: 10px; padding: 28px 34px; max-width: 560px; width: 92%; color: #eef4f8; text-align: center; }
+  .panel h1 { font-size: 42px; letter-spacing: 2px; color: #ffd23f; margin-bottom: 4px; }
+  .panel h2 { font-size: 26px; color: #ffd23f; margin-bottom: 10px; }
+  .panel p { font-size: 15px; line-height: 1.5; opacity: .9; margin-bottom: 14px; }
+  .panel .controls { font-size: 13px; opacity: .75; margin-bottom: 16px; line-height: 1.7; }
+  #job-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .job { pointer-events: auto; cursor: pointer; text-align: left; background: #16324a; color: #fff; border: 1px solid #2c4a63; border-radius: 6px; padding: 10px 14px; font-size: 14px; }
+  .job:hover { background: #1e4262; border-color: #ffd23f; }
+  .job span { font-size: 12px; opacity: .8; }
+  .btn { pointer-events: auto; cursor: pointer; background: #ffd23f; color: #1a1a1a; border: none; border-radius: 6px; padding: 12px 22px; font-size: 16px; font-weight: 800; margin: 4px; }
+  .btn:hover { background: #ffe06a; }
+  .btn.ghost { background: transparent; color: #fff; border: 1px solid #888; }
+  #jobs-done { font-size: 13px; color: #8fd694; margin-bottom: 8px; }
+  #mute-btn { position: fixed; bottom: 60px; right: 20px; z-index: 6; pointer-events: auto; cursor: pointer; background: rgba(0,0,0,.5); color: #fff; border: 1px solid rgba(255,255,255,.5); border-radius: 4px; padding: 4px 10px; font-size: 13px; }
 </style>
-<script type="importmap">
-{
-  "imports": {
-    "three": "./vendor/three.module.min.js"
-  }
-}
-</script>
 </head>
 <body>
 <canvas id="game"></canvas>
-<noscript><p style="color:#fff">Solara City needs JavaScript to run.</p></noscript>
 
-<div class="hud" id="hud-top-left">
-  <div id="hud-cash">$0</div>
-  <div id="hud-stars" class="stars">☆☆☆☆☆</div>
+<div class="hud" id="cash">$0</div>
+<div class="hud" id="stars">☆☆☆☆☆</div>
+<div class="hud" id="health">
+  <div class="label">HEALTH</div>
+  <div id="health-bar"><div id="health-fill"></div></div>
 </div>
-<div class="hud" id="hud-top-right">
-  <canvas id="minimap" width="190" height="190"></canvas>
-</div>
-<div class="hud" id="hud-bottom-left">
-  <div id="hud-health"><div id="hud-health-fill"></div></div>
-  <div id="hud-ammo">AMMO 12 / 12</div>
-</div>
-<div class="hud" id="hud-bottom-right"><span id="hud-speed"></span></div>
-<div class="hud" id="hud-mission"></div>
-<div class="hud" id="hud-toast"></div>
+<div class="hud" id="ammo">AMMO 12 / 48</div>
+<div class="hud" id="speed"></div>
+<div class="hud" id="mission">Free Roam</div>
+<canvas class="hud" id="minimap" width="150" height="150"></canvas>
+<div class="hud" id="crosshair"></div>
+<div class="hud" id="toast"></div>
+<button id="mute-btn">Mute (M)</button>
 
-<div class="screen" id="title-screen">
-  <h1>SOLARA CITY</h1>
-  <h2>An open-world crime game. Steal cars, outrun the police, and work four jobs for The Duchess — the fixer who runs the night trade out of Club Mirage.</h2>
-  <p id="title-save"></p>
-  <div class="jobs">
-    <button data-mission="0">1 · The First Pickup — $500</button>
-    <button data-mission="1">2 · Hot Wheels — $900</button>
-    <button data-mission="2">3 · Breaker Down — $1,400</button>
-    <button data-mission="3">4 · Payday — $2,500</button>
-    <button id="btn-continue" class="primary">Continue</button>
-    <button id="btn-freeroam">Free Roam</button>
-  </div>
-  <div class="hint">WASD move / drive · Shift run · E steal &amp; interact · Mouse drag camera<br>Left click shoot · R reload · Space confirm · P pause · M mute</div>
-</div>
-
-<div class="screen" id="pause-screen">
-  <h1>PAUSED</h1>
-  <h2>Solara City waits for no one. Except now.</h2>
-  <div class="jobs">
-    <button id="btn-resume" class="primary">Resume</button>
+<div class="overlay" id="title">
+  <div class="panel">
+    <h1>SOLARA CITY</h1>
+    <p>An open-world crime game. You are a wheelman new to Solara City — a
+    sun-soaked coastal town where the ocean meets the west edge. Walk the
+    streets or steal a car, outrun the police, and run jobs for The Duchess.</p>
+    <div class="controls">WASD move / drive &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; Shift run<br>
+    E steal / enter a car &nbsp;·&nbsp; Click fire &nbsp;·&nbsp; R reload<br>
+    1–4 start a job &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</div>
+    <div id="jobs-done"></div>
+    <div id="job-list"></div>
+    <button class="btn" id="free-roam-btn">Free Roam</button>
+    <button class="btn ghost" id="continue-btn" style="display:none">Continue</button>
   </div>
 </div>
 
-<div class="screen" id="busted-screen">
-  <h1>BUSTED</h1>
-  <h2 id="busted-text">The police booked you.</h2>
-  <div class="jobs">
-    <button id="btn-restart" class="primary">Back on the streets</button>
+<div class="overlay" id="pause" style="display:none">
+  <div class="panel">
+    <h2>Paused</h2>
+    <p>Solara City waits for no one — except right now.</p>
+    <button class="btn" id="resume-btn">Resume</button>
+    <button class="btn ghost" id="quit-title-btn">Quit to Title</button>
   </div>
 </div>
 
+<div class="overlay" id="busted" style="display:none">
+  <div class="panel">
+    <h2>BUSTED</h2>
+    <p>The Solara City police took you in.</p>
+    <p id="busted-lost"></p>
+    <button class="btn" id="busted-btn">Back on the streets</button>
+  </div>
+</div>
+
+<div class="overlay" id="wasted" style="display:none">
+  <div class="panel">
+    <h2>WASTED</h2>
+    <p>You got dropped. The Duchess patched you up.</p>
+    <p id="wasted-lost"></p>
+    <button class="btn" id="wasted-btn">Back on the streets</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

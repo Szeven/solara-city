@@ -1,10 +1,8 @@
-// Renderer, scene, camera and sun: the look of Solara City — a warm
-// late-afternoon light over a sun-soaked coastal city.
-
+// Solara City — renderer, sun, sky, and the third-person chase camera.
 import * as THREE from 'three';
-import { COLORS } from './config.js';
+import { clamp } from './random.js';
 
-export function setupWorld(canvas) {
+export function setupRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -13,69 +11,78 @@ export function setupWorld(canvas) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(COLORS.sky);
-  scene.fog = new THREE.Fog(COLORS.sky, 260, 780);
-
-  const camera = new THREE.PerspectiveCamera(
-    62,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1400,
-  );
-  camera.position.set(0, 30, 60);
-
-  const sun = new THREE.DirectionalLight(COLORS.sun, 2.6);
-  sun.position.set(180, 260, 90);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -280;
-  sun.shadow.camera.right = 280;
-  sun.shadow.camera.top = 280;
-  sun.shadow.camera.bottom = -280;
-  sun.shadow.camera.far = 800;
-  sun.shadow.bias = -0.0004;
-  scene.add(sun);
-
-  const hemi = new THREE.HemisphereLight(0xbfd8ee, 0x5a6b46, 0.9);
-  scene.add(hemi);
-
-  function onResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-  window.addEventListener('resize', onResize);
-
-  return {
-    renderer,
-    scene,
-    camera,
-    sun,
-    dispose() {
-      window.removeEventListener('resize', onResize);
-      renderer.dispose();
-    },
-  };
+  return renderer;
 }
 
-// Third-person chase camera: eases behind the target, looks slightly ahead.
-export function chaseCamera(camera, targetPos, heading, dt, state) {
-  const dist = state.inCar ? 11 : 8;
-  const height = state.inCar ? 4.2 : 3.4;
-  const back = {
-    x: targetPos.x - Math.sin(heading) * dist,
-    z: targetPos.z - Math.cos(heading) * dist,
-  };
-  const k = 1 - Math.exp(-dt * 4.5);
-  camera.position.x += (back.x - camera.position.x) * k;
-  camera.position.y += (height - camera.position.y) * k;
-  camera.position.z += (back.z - camera.position.z) * k;
-  const look = {
-    x: targetPos.x + Math.sin(heading) * 6,
-    y: targetPos.y + 1.4,
-    z: targetPos.z + Math.cos(heading) * 6,
-  };
-  camera.lookAt(look.x, look.y, look.z);
+export function setupLights(scene) {
+  scene.background = new THREE.Color(0x87bfe8);
+  scene.fog = new THREE.Fog(0x9fc8e8, 180, 520);
+  const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x8a7a5a, 0.9);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff2cf, 2.2);
+  sun.position.set(120, 180, 60);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -260;
+  sun.shadow.camera.right = 260;
+  sun.shadow.camera.top = 260;
+  sun.shadow.camera.bottom = -260;
+  sun.shadow.camera.far = 600;
+  sun.shadow.bias = -0.0008;
+  scene.add(sun);
+  return sun;
+}
+
+export class ChaseCamera {
+  constructor(camera) {
+    this.camera = camera;
+    this.distance = 7;
+    this.height = 3.2;
+    this.smooth = new THREE.Vector3(0, 3, 8);
+  }
+
+  update(dt, game) {
+    const p = game.player;
+    let dist = 7;
+    let height = 3.2;
+    let lookY = 1.6;
+    if (p.inCar && p.car) {
+      dist = 10;
+      height = 4.2;
+      lookY = 1.4;
+    }
+    // Camera sits behind the player's view direction.
+    const yaw = p.yaw;
+    const pitch = clamp(p.pitch, -0.5, 0.6);
+    const backX = Math.sin(yaw) * Math.cos(pitch);
+    const backZ = Math.cos(yaw) * Math.cos(pitch);
+    const target = new THREE.Vector3(
+      p.x + backX * dist,
+      lookY + height * (0.5 + pitch),
+      p.z + backZ * dist
+    );
+    // Keep the camera out of buildings: clamp its height above ground.
+    const k = 1 - Math.min(1, dt * 8);
+    this.smooth.lerp(target, 1 - k);
+    this.camera.position.copy(this.smooth);
+    const look = new THREE.Vector3(
+      p.x - Math.sin(yaw) * 4,
+      lookY + Math.sin(pitch) * 4,
+      p.z - Math.cos(yaw) * 4
+    );
+    this.camera.lookAt(look);
+  }
+
+  // Snap the camera for a screenshot staging.
+  snap(game) {
+    const p = game.player;
+    const yaw = p.yaw;
+    const dist = p.inCar ? 10 : 7;
+    this.smooth.set(
+      p.x + Math.sin(yaw) * dist,
+      1.6 + 3.2,
+      p.z + Math.cos(yaw) * dist
+    );
+    this.camera.position.copy(this.smooth);
+  }
 }

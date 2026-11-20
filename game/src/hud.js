@@ -1,164 +1,132 @@
-// HUD: cash, wanted stars, health, ammo, speed, mission line, toast
-// messages, title / pause / busted screens, and a live minimap drawn on a
-// 2D canvas.
+// Solara City — the HUD: cash, stars, health, ammo, speed, mission line,
+// the minimap, and the title / pause / busted / wasted overlays.
+import { CITY, MISSIONS } from './config.js';
 
-export function createHud(callbacks) {
-  const el = (id) => document.getElementById(id);
-  const cashEl = el('hud-cash');
-  const starsEl = el('hud-stars');
-  const healthFill = el('hud-health-fill');
-  const ammoEl = el('hud-ammo');
-  const speedEl = el('hud-speed');
-  const missionEl = el('hud-mission');
-  const toastEl = el('hud-toast');
-  const map = el('minimap');
-  const mapCtx = map.getContext('2d');
-  const titleEl = el('title-screen');
-  const pauseEl = el('pause-screen');
-  const bustedEl = el('busted-screen');
-  const bustedText = el('busted-text');
-
-  let toastTimer = 0;
-  const toastQueue = [];
-
-  // Title screen job buttons.
-  document.querySelectorAll('[data-mission]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      callbacks.onStartMission(Number(btn.dataset.mission));
-    });
-  });
-  el('btn-freeroam')?.addEventListener('click', () => callbacks.onFreeRoam());
-  el('btn-continue')?.addEventListener('click', () => callbacks.onContinue());
-  el('btn-resume')?.addEventListener('click', () => callbacks.onResume());
-  el('btn-restart')?.addEventListener('click', () => callbacks.onRestart());
-
-  function drawMinimap(s) {
-    const W = map.width;
-    const H = map.height;
-    const span = 560; // world -280..280
-    const toX = (x) => ((x + span / 2) / span) * W;
-    const toY = (z) => ((z + span / 2) / span) * H;
-    mapCtx.clearRect(0, 0, W, H);
-    mapCtx.fillStyle = '#10151c';
-    mapCtx.fillRect(0, 0, W, H);
-    // Ocean west.
-    mapCtx.fillStyle = '#245a75';
-    mapCtx.fillRect(0, 0, toX(-225), H);
-    // Roads.
-    mapCtx.strokeStyle = '#3a3f46';
-    mapCtx.lineWidth = 3;
-    for (const line of s.roadLines) {
-      mapCtx.beginPath();
-      mapCtx.moveTo(toX(-225), toY(line));
-      mapCtx.lineTo(toX(225), toY(line));
-      mapCtx.stroke();
-      mapCtx.beginPath();
-      mapCtx.moveTo(toX(line), toY(-225));
-      mapCtx.lineTo(toX(line), toY(225));
-      mapCtx.stroke();
-    }
-    // Buildings.
-    mapCtx.fillStyle = '#565d66';
-    for (const c of s.colliders) {
-      mapCtx.fillRect(toX(c.minX), toY(c.minZ), toX(c.maxX) - toX(c.minX), toY(c.maxZ) - toY(c.minZ));
-    }
-    // Traffic.
-    mapCtx.fillStyle = '#9aa2ad';
-    for (const car of s.cars) {
-      mapCtx.fillRect(toX(car.pos.x) - 1.5, toY(car.pos.z) - 1.5, 3, 3);
-    }
-    // Cops.
-    mapCtx.fillStyle = '#3b82f6';
-    for (const cop of s.cops) {
-      mapCtx.beginPath();
-      mapCtx.arc(toX(cop.pos.x), toY(cop.pos.z), 3, 0, Math.PI * 2);
-      mapCtx.fill();
-    }
-    // Mission marker.
-    if (s.missionTarget) {
-      const pulse = 4 + Math.sin(performance.now() / 240) * 1.5;
-      mapCtx.fillStyle = '#ffd34d';
-      mapCtx.beginPath();
-      mapCtx.arc(toX(s.missionTarget.x), toY(s.missionTarget.z), pulse, 0, Math.PI * 2);
-      mapCtx.fill();
-    }
-    // Player arrow.
-    const px = toX(s.playerPos.x);
-    const py = toY(s.playerPos.z);
-    mapCtx.save();
-    mapCtx.translate(px, py);
-    mapCtx.rotate(Math.atan2(Math.sin(s.playerHeading), Math.cos(s.playerHeading)) + Math.PI);
-    mapCtx.fillStyle = '#ffffff';
-    mapCtx.beginPath();
-    mapCtx.moveTo(0, -6);
-    mapCtx.lineTo(4.5, 5);
-    mapCtx.lineTo(-4.5, 5);
-    mapCtx.closePath();
-    mapCtx.fill();
-    mapCtx.restore();
+export class Hud {
+  constructor() {
+    this.cashEl = document.getElementById('cash');
+    this.starsEl = document.getElementById('stars');
+    this.healthEl = document.getElementById('health-fill');
+    this.ammoEl = document.getElementById('ammo');
+    this.speedEl = document.getElementById('speed');
+    this.missionEl = document.getElementById('mission');
+    this.toastEl = document.getElementById('toast');
+    this.minimap = document.getElementById('minimap');
+    this.mm = this.minimap.getContext('2d');
+    this.titleEl = document.getElementById('title');
+    this.pauseEl = document.getElementById('pause');
+    this.bustedEl = document.getElementById('busted');
+    this.wastedEl = document.getElementById('wasted');
+    this.toastTimer = null;
+    this.buildJobList();
   }
 
-  return {
-    update(s, dt) {
-      cashEl.textContent = `$${Math.floor(s.cash).toLocaleString('en-US')}`;
-      let stars = '';
-      for (let i = 0; i < 5; i++) stars += i < s.stars ? '★' : '☆';
-      starsEl.textContent = stars;
-      starsEl.className = s.stars > 0 ? 'stars hot' : 'stars';
-      healthFill.style.width = `${Math.max(0, s.health)}%`;
-      healthFill.style.background = s.health > 50 ? '#58b368' : s.health > 25 ? '#e0a92e' : '#d95f4b';
-      ammoEl.textContent = s.reloading ? 'RELOADING…' : `AMMO ${s.ammo} / 12`;
-      speedEl.textContent = s.inCar ? `${Math.round(Math.abs(s.speedKmh))} km/h` : '';
-      missionEl.textContent = s.missionText || 'Free Roam — press 1-4 for a job, E to steal a car';
-      if (toastTimer > 0) {
-        toastTimer -= dt;
-        if (toastTimer <= 0) {
-          const next = toastQueue.shift();
-          if (next) {
-            toastEl.textContent = next.text;
-            toastTimer = next.seconds;
-          } else {
-            toastEl.textContent = '';
-          }
-        }
-      }
-      drawMinimap(s);
-    },
-    toast(text, seconds = 3) {
-      // A toast already showing queues behind it instead of being lost.
-      if (toastTimer > 0) {
-        toastQueue.push({ text, seconds });
-        return;
-      }
-      toastEl.textContent = text;
-      toastTimer = seconds;
-    },
-    showTitle(save) {
-      titleEl.style.display = 'flex';
-      map.style.display = 'none';
-      const cont = el('btn-continue');
-      if (cont) cont.style.display = save ? 'block' : 'none';
-      const sub = el('title-save');
-      if (sub && save) {
-        sub.textContent = `Continue — $${Math.floor(save.cash).toLocaleString('en-US')}, ${save.done.length} job${save.done.length === 1 ? '' : 's'} done`;
-      }
-    },
-    hideTitle() {
-      titleEl.style.display = 'none';
-      map.style.display = 'block';
-    },
-    showPause(show) {
-      pauseEl.style.display = show ? 'flex' : 'none';
-    },
-    showBusted(cashLost) {
-      bustedText.textContent =
-        cashLost > 0
-          ? `The police booked you. Bail cost $${Math.floor(cashLost).toLocaleString('en-US')}.`
-          : 'The police booked you.';
-      bustedEl.style.display = 'flex';
-    },
-    hideBusted() {
-      bustedEl.style.display = 'none';
-    },
-  };
+  buildJobList() {
+    const list = document.getElementById('job-list');
+    if (!list) return;
+    list.innerHTML = '';
+    for (const m of MISSIONS) {
+      const b = document.createElement('button');
+      b.className = 'job';
+      b.innerHTML = `<b>${m.id}. ${m.name}</b> — $${m.pay}<br><span>${m.brief}</span>`;
+      b.addEventListener('click', () => window.__game?.startJob(m.id));
+      list.appendChild(b);
+    }
+  }
+
+  showOnly(el) {
+    for (const o of [this.titleEl, this.pauseEl, this.bustedEl, this.wastedEl]) {
+      if (o) o.style.display = o === el ? 'flex' : 'none';
+    }
+  }
+
+  showTitle() { this.showOnly(this.titleEl); }
+  showPause() { this.showOnly(this.pauseEl); }
+  showBusted() { this.showOnly(this.bustedEl); }
+  showWasted() { this.showOnly(this.wastedEl); }
+  hideAll() { this.showOnly(null); }
+
+  toast(msg, seconds = 3) {
+    if (!this.toastEl) return;
+    this.toastEl.textContent = msg;
+    this.toastEl.style.opacity = '1';
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { this.toastEl.style.opacity = '0'; }, seconds * 1000);
+  }
+
+  update(game) {
+    const p = game.player;
+    if (this.cashEl) this.cashEl.textContent = `$${p.cash.toLocaleString('en-US')}`;
+    if (this.starsEl) {
+      const s = game.wanted.stars;
+      this.starsEl.textContent = '★'.repeat(s) + '☆'.repeat(5 - s);
+      this.starsEl.style.color = s >= 3 ? '#ff5a4e' : s >= 1 ? '#ffd23f' : '#888';
+    }
+    if (this.healthEl) {
+      this.healthEl.style.width = `${Math.max(0, p.health)}%`;
+      this.healthEl.style.background = p.health > 50 ? '#4caf50' : p.health > 25 ? '#ff9800' : '#f44336';
+    }
+    if (this.ammoEl) this.ammoEl.textContent = `AMMO ${p.ammo} / ${p.reserve}`;
+    if (this.speedEl) {
+      const kmh = Math.round(Math.abs(p.speed) * 3.6);
+      this.speedEl.textContent = p.inCar ? `${kmh} km/h` : '';
+    }
+    if (this.missionEl) this.missionEl.textContent = game.missions.label();
+    this.drawMinimap(game);
+  }
+
+  drawMinimap(game) {
+    const g = this.mm;
+    const S = 150;
+    const scale = S / (CITY.bounds * 2 + 40);
+    const toMap = (x, z) => [S / 2 + x * scale, S / 2 + z * scale];
+    g.clearRect(0, 0, S, S);
+    g.fillStyle = '#0d1b26';
+    g.fillRect(0, 0, S, S);
+    // Ocean on the west edge.
+    g.fillStyle = '#1e6f8e';
+    const [ox] = toMap(CITY.oceanX, 0);
+    g.fillRect(0, 0, Math.max(0, ox), S);
+    // Roads.
+    g.strokeStyle = '#4a4f55';
+    g.lineWidth = 3;
+    for (const r of CITY.roads) {
+      const [x1, y1] = toMap(r, -CITY.bounds);
+      const [x2, y2] = toMap(r, CITY.bounds);
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+      const [x3, y3] = toMap(-CITY.bounds, r);
+      const [x4, y4] = toMap(CITY.bounds, r);
+      g.beginPath(); g.moveTo(x3, y3); g.lineTo(x4, y4); g.stroke();
+    }
+    // Mission target.
+    const target = game.missions.currentTarget();
+    if (target) {
+      const [mx, my] = toMap(target.x, target.z);
+      g.fillStyle = '#ffd23f';
+      g.beginPath(); g.arc(mx, my, 5, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#ffd23f';
+      g.beginPath(); g.arc(mx, my, 8 + Math.sin(Date.now() / 300) * 2, 0, Math.PI * 2); g.stroke();
+    }
+    // Traffic (grey) and police (blue).
+    g.fillStyle = '#9aa0a6';
+    for (const car of game.traffic.cars) {
+      if (car.isPolice) continue;
+      const [cx, cy] = toMap(car.x, car.z);
+      g.fillRect(cx - 1, cy - 1, 2, 2);
+    }
+    g.fillStyle = '#3f8cff';
+    for (const car of game.police.cruisers) {
+      const [cx, cy] = toMap(car.x, car.z);
+      g.beginPath(); g.arc(cx, cy, 2.5, 0, Math.PI * 2); g.fill();
+    }
+    // Player arrow.
+    const [px, py] = toMap(game.player.x, game.player.z);
+    g.save();
+    g.translate(px, py);
+    g.rotate(Math.atan2(Math.sin(game.player.yaw), Math.cos(game.player.yaw)) + Math.PI);
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    g.moveTo(0, -6); g.lineTo(4, 5); g.lineTo(-4, 5); g.closePath(); g.fill();
+    g.restore();
+  }
 }

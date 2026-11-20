@@ -1,9 +1,10 @@
-// Seeded random numbers (mulberry32) so the city, traffic and shots are
-// repeatable from one seed, and the same seed replays the same scene.
+// Solara City — small seeded RNG so the city and traffic are stable
+// for a given seed, and plain helpers used across the game.
 
+// mulberry32: a tiny, fast, deterministic PRNG.
 export function mulberry32(seed) {
   let a = seed >>> 0;
-  return function next() {
+  return function () {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -12,40 +13,36 @@ export function mulberry32(seed) {
   };
 }
 
-export function makeRng(seed) {
-  const next = mulberry32(seed);
-  return {
-    next,
-    // Float in [a, b).
-    range(a, b) {
-      return a + (b - a) * next();
-    },
-    // Integer in [a, b] inclusive.
-    int(a, b) {
-      return a + Math.floor(next() * (b - a + 1));
-    },
-    // True with probability p.
-    chance(p) {
-      return next() < p;
-    },
-    // One element of arr, uniformly.
-    pick(arr) {
-      return arr[Math.floor(next() * arr.length)];
-    },
-    // In-place Fisher-Yates shuffle, returns the same array.
-    shuffle(arr) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(next() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-      return arr;
-    },
-  };
+export function pick(rng, arr) {
+  return arr[Math.floor(rng() * arr.length)];
 }
 
-// A deterministic 2D hash for per-block variation: same input, same output.
-export function hash2(x, z, seed = 7) {
-  let h = (x * 374761393 + z * 668265263 + seed * 974634211) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+export function range(rng, min, max) {
+  return min + rng() * (max - min);
+}
+
+export function rangeInt(rng, min, max) {
+  return Math.floor(range(rng, min, max + 1));
+}
+
+export function clamp(v, min, max) {
+  return v < min ? min : v > max ? max : v;
+}
+
+export function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// Shortest signed angle difference, in radians.
+export function angleDiff(a, b) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+export function dist2D(ax, az, bx, bz) {
+  const dx = ax - bx;
+  const dz = az - bz;
+  return Math.sqrt(dx * dx + dz * dz);
 }

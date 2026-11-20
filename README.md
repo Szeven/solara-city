@@ -1,55 +1,44 @@
-# Solara City
+# Solara City — make.fun gta6-01
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/Szeven/solara-city/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/Szeven/solara-city/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-Solara City is an original open-world crime game in the spirit of GTA 6, built for the make.fun gta6-01 bounty. No Rockstar name, logo, character, map or asset appears anywhere: the city, its people, its cars and its story are all invented here.
+Solara City is an original open-world crime game in the spirit of GTA 6,
+built for the make.fun gta6-01 bounty. No Rockstar art, names, or assets —
+the city, the story, the cars, and the sound are all made for this entry.
 
-## The game
+You play a wheelman new to Solara City, a sun-soaked 9×9 coastal city
+where the ocean meets the west edge. Walk the streets or steal a car and
+drive: traffic follows the road graph, pedestrians stroll the sidewalks
+and flee when trouble starts, and the Solara City police answer with
+cruisers and officers on foot as your wanted level climbs from 0 to 5
+stars. The Duchess runs the city's jobs — four missions, from a $500
+pickup at the Docks to a $2,500 payday — with a beacon and a minimap
+marker guiding you there. A hitscan pistol (12 rounds, reload with R),
+a cash and health HUD, a minimap, a title screen with a job list, and a
+localStorage save round it out. All sound is synthesized in WebAudio and
+all textures are drawn on canvas at run time; no image or audio files
+are shipped.
 
-A sun-soaked 9x9-block coastal city, ocean to the west. Explore it on foot or by car, steal cars, outrun the police, and work four jobs for The Duchess — a fixer who runs the city's night trade out of Club Mirage.
+## How to play
 
-- **Open world:** drive and walk a full city grid with traffic, pedestrians, a beach and a marina.
-- **Wanted system:** 0–5 stars. Steal cars, shoot, or hit people and the police come — cruisers that chase and ram, officers on foot who try to bust you. Lay low for 22 quiet seconds and the heat cools.
-- **Missions:** four jobs with a beacon and minimap marker — The First Pickup ($500), Hot Wheels ($900), Breaker Down ($1,400), Payday ($2,500).
-- **Combat:** a hitscan pistol with 12 rounds, reload, tracers and muzzle flash.
-- **HUD:** cash, wanted stars, health, ammo, speed, mission line and a live minimap.
-- **Save:** progress (cash, jobs done, position) is kept in localStorage.
-- **Sound and art:** every sound is synthesized with WebAudio (engine, sirens, gunshots, jingles, ambience) and every texture is drawn procedurally on canvas. No image or audio file is shipped.
+Serve `game/` with any static server (or `node serve.ts`, then open
+http://localhost:8322) and open `game/index.html` in a desktop browser.
 
-## Controls
+- **W A S D** — move / drive · **Mouse** — look / aim · **Shift** — run
+- **E** — steal / enter a car, exit it · **Space** — brake / handbrake
+- **Left click** — fire the pistol · **R** — reload
+- **1–4** — start a job for The Duchess · **P** — pause · **M** — mute
 
-| Key | Action |
-| --- | --- |
-| WASD / arrows | Move / drive |
-| Shift | Run |
-| E | Steal / enter a car, interact |
-| Mouse drag | Orbit camera |
-| Left click | Shoot |
-| R | Reload |
-| Space / Enter | Confirm |
-| P / Esc | Pause |
-| M | Mute |
+## What is in the repo
 
-## Run it
-
-Serve `game/` with any static server and open `game/index.html`, or run the dev server:
-
-```sh
-node serve.ts --port 8322   # serves game/ on http://localhost:8322/
-```
-
-The entry program `main.ts` (Node 22, standard library only) hands the game in:
-
-```sh
-MAKEFUN_OUTPUT_DIR=out node main.ts   # writes out/dossier.json
-```
-
-## Tech
-
-- three.js r160, vendored under `game/vendor/`
-- ES modules under `game/src/`, one job per file
-- No network requests at runtime; fully offline
+- `game/` — the playable game: `index.html` plus ES modules under
+  `game/src/`, with three.js r160 vendored under `game/vendor/`.
+- `screenshots/` — four renders of the game itself, taken in a browser.
+- `main.ts` — hands the entry in: copies `game/` and `screenshots/` to
+  the output directory and writes `dossier.json` with
+  `vendor/makefun-game.ts`.
+- `serve.ts` — a small dev server for play-testing.
 
 <sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>

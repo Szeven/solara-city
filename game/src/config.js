@@ -1,140 +1,145 @@
-// Solara City — tuning, places and mission data.
-// Every number here is the game's own design: a 9x9-block coastal city,
-// ocean to the west, roads 14 m wide on a 50 m pitch.
-
+// Solara City — tuning, city layout, missions, places.
+// Everything the other modules agree on lives here.
 export const CITY = {
-  blocks: 9,
-  pitch: 50,
+  pitch: 50, // metres between road centrelines, one block apart
   roadWidth: 14,
   blockSize: 36,
-  half: 225, // the city spans -225..225 on both axes
-  oceanEdge: -225, // west of this line is water
-  beachWidth: 30,
-};
-
-// Road centrelines, one every 50 m from -225 to 225.
-export const ROAD_LINES = [-225, -175, -125, -75, -25, 25, 75, 125, 175, 225];
-
-// Named places, all on road intersections so markers sit in the open.
-export const PLACES = {
-  docks: { x: -175, z: 175, name: 'Docks' },
-  marina: { x: -175, z: -175, name: 'Marina' },
-  garage: { x: 175, z: 125, name: 'Sunset Garage' },
-  club: { x: 125, z: -125, name: 'Club Mirage' },
-  causeway: { x: -25, z: -175, name: 'Causeway' },
-  plaza: { x: 25, z: 25, name: 'Meridian Plaza' },
-  safehouse: { x: -125, z: 125, name: 'Safehouse' },
-  hospital: { x: 75, z: -125, name: 'General Hospital' },
-  beach: { x: -200, z: 25, name: 'Solara Beach' },
+  roads: [-225, -175, -125, -75, -25, 25, 75, 125, 175, 225],
+  blocks: [-200, -150, -100, -50, 0, 50, 100, 150, 200],
+  oceanX: -232, // the water starts just west of the last road
+  bounds: 250, // playfield half-extent; the ocean covers x < oceanX
 };
 
 export const PLAYER = {
-  walkSpeed: 6,
-  runSpeed: 10.5,
-  radius: 0.45,
-  height: 1.8,
+  walkSpeed: 5.2,
+  runSpeed: 9.0,
+  radius: 0.55,
   health: 100,
-  turnSpeed: 9,
+  eyeHeight: 1.62,
 };
 
 export const CAR = {
-  accel: 22,
-  brake: 34,
-  reverseMax: 9,
-  forwardMax: 38,
-  steer: 1.9,
-  grip: 6,
+  accel: 16,
+  brake: 30,
+  reverseAccel: 10,
+  maxForward: 34, // ~122 km/h
+  maxReverse: 10,
+  steerMax: 0.55,
+  grip: 6.5,
   radius: 1.6,
 };
 
-// Wanted: heat rises with crimes, cools after 22 quiet seconds.
+export const TRAFFIC = {
+  count: 16,
+  cruiseMin: 7,
+  cruiseMax: 12,
+  parked: 10,
+};
+
+export const PEDS = {
+  count: 26,
+  walkMin: 1.0,
+  walkMax: 1.9,
+  fleeRadius: 18,
+};
+
 export const WANTED = {
   maxStars: 5,
-  coolAfter: 22,
-  coolRate: 0.35, // stars per second once cooling
+  coolSeconds: 22, // quiet time before heat starts falling
+  decayPerSecond: 0.25,
   stealHeat: 1.0,
   shootHeat: 0.6,
-  hitPedHeat: 1.0,
-  hitCopHeat: 1.5,
-  hitCarHeat: 0.2,
-  copCars: [0, 1, 2, 3, 4, 5], // cop cars out, by star
-  copFoot: [0, 0, 1, 2, 3, 4], // officers on foot, by star
+  killHeat: 1.0,
+  ramHeat: 0.3,
+  copKillHeat: 2.0,
+  bustSeconds: 2.0, // an officer this close for this long busts you
+  cruiserPerStar: 1,
+  officerPerStar: 1,
 };
 
-export const WEAPON = {
-  ammo: 12,
+export const COMBAT = {
+  pistolAmmo: 12,
+  pistolReserve: 48,
+  pistolRange: 90,
+  pistolDamage: 34,
   reloadSeconds: 1.4,
-  range: 90,
-  damage: 34,
-  fireSeconds: 0.22,
+  fireInterval: 0.22,
 };
 
-// The four jobs The Duchess hands out, in story order.
+// The Duchess's jobs. Each step is a goto marker, a pickup, a car to
+// steal and deliver, or an escape. Positions sit on road centrelines.
 export const MISSIONS = [
   {
-    id: 'm1',
+    id: 1,
     name: 'The First Pickup',
-    reward: 500,
-    giver: 'The Duchess',
-    briefing: 'A package is waiting at the Docks. Walk in, pick it up, bring it to the Safehouse. No noise.',
+    pay: 500,
+    brief: 'A package is waiting at the Docks. Pick it up and bring it to the Marina. No questions.',
     steps: [
-      { kind: 'goto', place: 'docks', text: 'Go to the Docks' },
-      { kind: 'pickup', place: 'docks', text: 'Pick up the package (E)' },
-      { kind: 'goto', place: 'safehouse', text: 'Deliver to the Safehouse' },
-      { kind: 'deliver', place: 'safehouse', text: 'Hand it over (E)' },
+      { type: 'goto', label: 'Go to the Docks', pos: [-225, 150] },
+      { type: 'pickup', label: 'Pick up the package', pos: [-225, 150], radius: 4 },
+      { type: 'goto', label: 'Deliver to the Marina', pos: [-150, 225] },
     ],
   },
   {
-    id: 'm2',
+    id: 2,
     name: 'Hot Wheels',
-    reward: 900,
-    giver: 'The Duchess',
-    briefing: 'A Comet GT is parked at the Marina. Take it. The Breakers want it at the Garage — do not scratch it.',
+    pay: 900,
+    brief: 'A Comet GT is parked by the Bank. Take it — quietly — and bring it to the Garage.',
     steps: [
-      { kind: 'goto', place: 'marina', text: 'Go to the Marina' },
-      { kind: 'steal', place: 'marina', text: 'Steal the Comet GT (E)' },
-      { kind: 'goto', place: 'garage', text: 'Drive it to Sunset Garage' },
-      { kind: 'deliver', place: 'garage', text: 'Hand over the Comet GT (E)' },
+      { type: 'steal', label: 'Steal the Comet GT', pos: [25, -25], car: 'comet' },
+      { type: 'goto', label: 'Deliver it to the Garage', pos: [200, -125], inCar: true },
     ],
   },
   {
-    id: 'm3',
+    id: 3,
     name: 'Breaker Down',
-    reward: 1400,
-    giver: 'The Duchess',
-    briefing: 'The Breakers are leaning on our drivers at the Causeway. Go there, clear them out, then get to Club Mirage.',
+    pay: 1400,
+    brief: 'A van broke down by the North Gate. Get it running and drive it back to the Garage.',
     steps: [
-      { kind: 'goto', place: 'causeway', text: 'Go to the Causeway' },
-      { kind: 'clear', place: 'causeway', text: 'Clear out the Breakers' },
-      { kind: 'goto', place: 'club', text: 'Report to Club Mirage' },
-      { kind: 'deliver', place: 'club', text: 'Tell The Duchess (E)' },
+      { type: 'goto', label: 'Reach the broken van', pos: [75, -225] },
+      { type: 'wait', label: 'Fix the van (stay close)', pos: [75, -225], seconds: 5 },
+      { type: 'goto', label: 'Drive the van to the Garage', pos: [200, -125], inCar: true },
     ],
   },
   {
-    id: 'm4',
+    id: 4,
     name: 'Payday',
-    reward: 2500,
-    giver: 'The Duchess',
-    briefing: 'One last run. Pick up the payout at the Plaza, lose the tail, and bring it home to the Safehouse.',
+    pay: 2500,
+    brief: 'The Bank case. Grab it and get to the Safehouse. The whole city will be looking.',
     steps: [
-      { kind: 'goto', place: 'plaza', text: 'Go to Meridian Plaza' },
-      { kind: 'pickup', place: 'plaza', text: 'Pick up the payout (E)' },
-      { kind: 'escape', place: 'safehouse', text: 'Lose the heat, then reach the Safehouse' },
-      { kind: 'deliver', place: 'safehouse', text: 'Stash the payout (E)' },
+      { type: 'pickup', label: 'Grab the case at the Bank', pos: [0, 25], radius: 4, heat: 3 },
+      { type: 'goto', label: 'Escape to the Safehouse', pos: [100, -225] },
     ],
   },
 ];
 
+export const PLACES = {
+  docks: { name: 'Docks', pos: [-225, 150] },
+  marina: { name: 'Marina', pos: [-150, 225] },
+  bank: { name: 'Solara Bank', pos: [0, 25] },
+  garage: { name: 'Garage', pos: [200, -125] },
+  safehouse: { name: 'Safehouse', pos: [100, -225] },
+  northGate: { name: 'North Gate', pos: [75, -225] },
+  plaza: { name: 'Central Plaza', pos: [0, 0] },
+  beach: { name: 'West Beach', pos: [-225, 0] },
+};
+
+export const CAR_MODELS = {
+  sedan: { name: 'Sedano', top: 30, accel: 15, color: 0x3a6ea5 },
+  hatch: { name: 'Pip', top: 26, accel: 17, color: 0xc2a23d },
+  comet: { name: 'Comet GT', top: 38, accel: 20, color: 0xc0392b },
+  van: { name: 'Mule Van', top: 24, accel: 12, color: 0x7f8c8d },
+  taxi: { name: 'Cab', top: 28, accel: 15, color: 0xf1c40f },
+  cruiser: { name: 'SCPD Cruiser', top: 36, accel: 19, color: 0x1b2a4a },
+};
+
 export const COLORS = {
-  sky: 0x87b5d6,
-  sun: 0xffe3b3,
-  ocean: 0x2e6f8e,
-  sand: 0xd9c08a,
-  grass: 0x5d8a4a,
-  road: 0x33363b,
+  sky: 0x87bfe8,
+  sun: 0xfff2cf,
+  ocean: 0x1e6f8e,
+  sand: 0xe8d9a8,
+  grass: 0x6fae5a,
+  asphalt: 0x33363b,
   sidewalk: 0x9a9a92,
-  building: [0xc9a06a, 0x8fa3b0, 0xb0705f, 0x7d8a6a, 0xa89a7d, 0x6f7f95],
-  car: [0xc23b2e, 0x2e6fc2, 0xe0a92e, 0x3fae6a, 0x7a4fb0, 0xd8d8d8, 0x222222],
-  cop: 0x1d2f4d,
-  beacon: 0xffd34d,
+  buildingGlass: 0x2c4a63,
 };

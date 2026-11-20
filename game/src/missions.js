@@ -1,199 +1,143 @@
-// Missions: four jobs for The Duchess, each a chain of steps with a beacon
-// and a minimap marker. Completing a job pays its reward.
-
+// Solara City — The Duchess's jobs: a small state machine over the
+// mission defs in config.js, with a beacon marking the current target.
 import * as THREE from 'three';
-import { MISSIONS, PLACES, WEAPON } from './config.js';
-import { spawnParkedCar } from './vehicles.js';
-import { createPedMesh } from './people.js';
+import { MISSIONS } from './config.js';
+import { buildCarMesh, Car } from './vehicles.js';
 
-function makeBeacon(scene) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0xffd34d,
-    transparent: true,
-    opacity: 0.28,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.4, 60, 12, 1, true), mat);
-  pillar.position.y = 30;
-  group.add(pillar);
-  const ringMat = new THREE.MeshBasicMaterial({
-    color: 0xffd34d,
-    transparent: true,
-    opacity: 0.85,
-    side: THREE.DoubleSide,
-  });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 3.2, 32), ringMat);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.12;
-  group.add(ring);
-  group.visible = false;
-  scene.add(group);
-  return group;
-}
-
-export function createMissions(scene, rng) {
-  const beacon = makeBeacon(scene);
-  const state = {
-    scene,
-    rng,
-    beacon,
-    done: [],
-    active: null, // { def, step }
-    missionCar: null,
-    breakers: [],
-    banner: '',
-  };
-
-  function targetPos() {
-    if (!state.active) return null;
-    const step = state.active.def.steps[state.active.step];
-    const place = PLACES[step.place];
-    return place ? { x: place.x, z: place.z } : null;
+export class MissionSystem {
+  constructor(scene, city, rng) {
+    this.scene = scene;
+    this.city = city;
+    this.rng = rng;
+    this.active = null; // {def, step, waitLeft}
+    this.done = new Set();
+    this.missionCar = null;
+    // Beacon: a tall glowing pillar (visible above the rooftops from
+    // across the city) + a floating diamond over the target.
+    const geo = new THREE.CylinderGeometry(2.5, 2.5, 150, 16, 1, true);
+    this.beacon = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: 0xffd23f, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false,
+      })
+    );
+    this.beacon.visible = false;
+    scene.add(this.beacon);
+    const marker = new THREE.Mesh(
+      new THREE.OctahedronGeometry(1.1),
+      new THREE.MeshBasicMaterial({ color: 0xffd23f })
+    );
+    this.marker = marker;
+    marker.visible = false;
+    scene.add(marker);
+    this.pulse = 0;
   }
 
-  function setStep(i) {
-    state.active.step = i;
-    const step = state.active.def.steps[i];
-    const place = PLACES[step.place];
-    if (place) {
-      beacon.position.set(place.x, 0, place.z);
-      beacon.visible = true;
-    }
-    state.banner = step.text;
-    // Step setup: spawn what the step needs.
-    if (step.kind === 'steal' && !state.missionCar) {
-      state.missionCar = spawnParkedCar(scene, PLACES.marina.x + 6, PLACES.marina.z - 4, Math.PI / 2, 0xe0a92e);
-      state.missionCar.kind = 'mission';
-    }
-    if (step.kind === 'clear' && state.breakers.length === 0) {
-      for (let i = 0; i < 3; i++) {
-        const mesh = createPedMesh(0x8a2f23);
-        const x = PLACES.causeway.x + (i - 1) * 6;
-        const z = PLACES.causeway.z + (i % 2 ? 5 : -5);
-        mesh.position.set(x, 0, z);
-        scene.add(mesh);
-        state.breakers.push({
-          mesh,
-          pos: new THREE.Vector3(x, 0, z),
-          health: WEAPON.damage * 2,
-          heading: 0,
-          radius: 0.7,
-          kind: 'breaker',
-          ref: null,
-        });
-      }
+  start(id, game) {
+    const def = MISSIONS.find((m) => m.id === id);
+    if (!def || this.done.has(id) || this.active) return false;
+    this.active = { def, step: 0, waitLeft: 0 };
+    this.setupStep(game);
+    game.toast(`Job started: ${def.name} — $${def.pay}`);
+    game.sounds.click();
+    return true;
+  }
+
+  setupStep(game) {
+    const step = this.currentStep();
+    if (!step) return;
+    if (step.type === 'steal') {
+      // Park the target car at the step position.
+      const mesh = buildCarMesh(step.car ?? 'comet', 0xc0392b);
+      const car = new Car(mesh, step.car ?? 'comet', step.pos[0], step.pos[1], Math.PI / 2);
+      car.isParked = true;
+      car.missionCar = true;
+      this.missionCar = car;
+      game.traffic.cars.push(car);
+      this.scene.add(mesh);
     }
   }
 
-  return {
-    get done() {
-      return state.done;
-    },
-    get active() {
-      return state.active;
-    },
+  currentStep() {
+    if (!this.active) return null;
+    return this.active.def.steps[this.active.step] ?? null;
+  }
 
-    start(index) {
-      const def = MISSIONS[index];
-      if (!def || state.done.includes(def.id)) return false;
-      state.active = { def, step: 0 };
-      setStep(0);
-      return true;
-    },
+  currentTarget() {
+    const step = this.currentStep();
+    if (!step) return null;
+    return { x: step.pos[0], z: step.pos[1], label: step.label };
+  }
 
-    currentInfo() {
-      if (!state.active) return null;
-      const step = state.active.def.steps[state.active.step];
-      return {
-        name: state.active.def.name,
-        text: state.banner,
-        target: targetPos(),
-        stepKind: step.kind,
-        reward: state.active.def.reward,
-      };
-    },
+  label() {
+    if (!this.active) return 'Free Roam — press 1-4 for a job, E to steal a car';
+    const step = this.currentStep();
+    return `${this.active.def.name} — ${step ? step.label : ''}`;
+  }
 
-    // One frame. ctx: { playerPos, playerCar, pressedE, enteredCar, hits, dt }.
-    // Returns events: {type:'step'|'complete', ...}.
-    update(dt, ctx) {
-      const events = [];
-      if (!state.active) return events;
-      const def = state.active.def;
-      const step = def.steps[state.active.step];
-      const place = PLACES[step.place];
-      const px = ctx.playerPos.x;
-      const pz = ctx.playerPos.z;
-      const dist = place ? Math.hypot(px - place.x, pz - place.z) : Infinity;
+  advance(game) {
+    this.active.step++;
+    if (this.active.step >= this.active.def.steps.length) {
+      const def = this.active.def;
+      this.done.add(def.id);
+      game.player.cash += def.pay;
+      game.toast(`Job complete: ${def.name} — +$${def.pay}`);
+      game.sounds.pickup();
+      game.save();
+      this.active = null;
+      this.beacon.visible = false;
+      this.marker.visible = false;
+      return;
+    }
+    this.active.waitLeft = 0;
+    this.setupStep(game);
+    game.sounds.click();
+  }
 
-      const advance = () => {
-        if (state.active.step + 1 < def.steps.length) {
-          setStep(state.active.step + 1);
-          events.push({ type: 'step', text: state.banner });
-        } else {
-          const reward = def.reward;
-          state.done.push(def.id);
-          state.active = null;
-          beacon.visible = false;
-          events.push({ type: 'complete', mission: def, reward });
-        }
-      };
-
-      if (step.kind === 'goto' && dist < 7) advance();
-      else if ((step.kind === 'pickup' || step.kind === 'deliver') && dist < 5 && ctx.pressedE) advance();
-      else if (step.kind === 'steal' && ctx.enteredCar === state.missionCar) advance();
-      else if (step.kind === 'clear') {
-        // Breakers chase and punch the player; bullets drop them.
-        for (let i = state.breakers.length - 1; i >= 0; i--) {
-          const b = state.breakers[i];
-          const dx = px - b.pos.x;
-          const dz = pz - b.pos.z;
-          const d = Math.hypot(dx, dz);
-          b.heading = Math.atan2(dx, dz);
-          if (d > 1.6) {
-            b.pos.x += Math.sin(b.heading) * 5.2 * dt;
-            b.pos.z += Math.cos(b.heading) * 5.2 * dt;
-          }
-          b.mesh.position.set(b.pos.x, 0, b.pos.z);
-          b.mesh.rotation.y = b.heading;
-          if (d < 1.6) ctx.onTouch?.(b, dt);
-        }
-        for (const hit of ctx.hits || []) {
-          if (hit.kind !== 'breaker') continue;
-          const b = state.breakers.find((x) => x === hit.ref);
-          if (!b) continue;
-          b.health -= WEAPON.damage;
-          if (b.health <= 0) {
-            scene.remove(b.mesh);
-            state.breakers.splice(state.breakers.indexOf(b), 1);
-          }
-        }
-        if (state.breakers.length === 0) advance();
-      } else if (step.kind === 'escape' && dist < 7 && ctx.wantedStars === 0) advance();
-
-      return events;
-    },
-
-    // The mission car and breakers, for shooting and minimap lists.
-    shootables() {
-      return state.breakers.map((b) => ({
-        pos: b.pos,
-        radius: b.radius,
-        kind: 'breaker',
-        ref: b,
-      }));
-    },
-
-    abandon() {
-      if (state.missionCar) {
-        state.scene.remove(state.missionCar.mesh);
-        state.missionCar = null;
+  update(dt, game) {
+    this.pulse += dt;
+    const target = this.currentTarget();
+    if (target) {
+      this.beacon.visible = true;
+      this.marker.visible = true;
+      this.beacon.position.set(target.x, 75, target.z);
+      this.marker.position.set(target.x, 8 + Math.sin(this.pulse * 2) * 0.8, target.z);
+      this.marker.rotation.y = this.pulse;
+      this.beacon.material.opacity = 0.26 + Math.sin(this.pulse * 2) * 0.06;
+    } else {
+      this.beacon.visible = false;
+      this.marker.visible = false;
+    }
+    if (!this.active) return;
+    const step = this.currentStep();
+    const p = game.player;
+    const dx = p.x - step.pos[0];
+    const dz = p.z - step.pos[1];
+    const dist = Math.hypot(dx, dz);
+    if (step.type === 'goto') {
+      const radius = step.inCar ? 7 : 5;
+      if (dist < radius && (!step.inCar || p.inCar)) this.advance(game);
+    } else if (step.type === 'pickup') {
+      if (dist < (step.radius ?? 4)) {
+        if (step.heat) game.addHeat(step.heat);
+        game.toast('Picked up the case — run!');
+        this.advance(game);
       }
-      for (const b of state.breakers) state.scene.remove(b.mesh);
-      state.breakers = [];
-      state.active = null;
-      beacon.visible = false;
-    },
-  };
+    } else if (step.type === 'steal') {
+      if (p.inCar && p.car && p.car.missionCar) {
+        game.toast('Got it. Now deliver it.');
+        this.advance(game);
+      }
+    } else if (step.type === 'wait') {
+      if (dist < 6) {
+        this.active.waitLeft += dt;
+        if (this.active.waitLeft >= (step.seconds ?? 5)) {
+          game.toast('Fixed. Drive it to the Garage.');
+          this.advance(game);
+        }
+      } else {
+        this.active.waitLeft = 0;
+      }
+    }
+  }
 }
