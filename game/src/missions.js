@@ -1,143 +1,152 @@
-// Solara City — The Duchess's jobs: a small state machine over the
-// mission defs in config.js, with a beacon marking the current target.
-import * as THREE from 'three';
-import { MISSIONS } from './config.js';
-import { buildCarMesh, Car } from './vehicles.js';
+// The Duchess's four jobs. A mission is a list of steps; each step is
+// goto (reach a marker), steal (get into a named target car) or deliver
+// (park the target car at a marker). Deliver advances ONLY when the
+// player is driving the mission's own target car — arriving in any other
+// car does not count.
 
-export class MissionSystem {
-  constructor(scene, city, rng) {
+import * as THREE from '../vendor/three.module.min.js';
+import { MISSIONS } from './config.js';
+
+export class Missions {
+  constructor(scene) {
     this.scene = scene;
-    this.city = city;
-    this.rng = rng;
-    this.active = null; // {def, step, waitLeft}
-    this.done = new Set();
-    this.missionCar = null;
-    // Beacon: a tall glowing pillar (visible above the rooftops from
-    // across the city) + a floating diamond over the target.
-    const geo = new THREE.CylinderGeometry(2.5, 2.5, 150, 16, 1, true);
-    this.beacon = new THREE.Mesh(
-      geo,
-      new THREE.MeshBasicMaterial({
-        color: 0xffd23f, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false,
-      })
-    );
-    this.beacon.visible = false;
-    scene.add(this.beacon);
-    const marker = new THREE.Mesh(
-      new THREE.OctahedronGeometry(1.1),
-      new THREE.MeshBasicMaterial({ color: 0xffd23f })
-    );
-    this.marker = marker;
-    marker.visible = false;
-    scene.add(marker);
-    this.pulse = 0;
+    this.completed = new Set();
+    this.active = null; // { def, stepIndex }
+    this.beacon = null;
+    this.marker = null;
+    this.targetCar = null; // the Car the active mission wants
+    this.onComplete = null; // (missionDef) => void
+    this.onStep = null; // (label) => void
+    this.buildBeacon();
   }
 
-  start(id, game) {
+  buildBeacon() {
+    // a tall glowing pillar + a ring on the ground, moved to each step
+    const geo = new THREE.CylinderGeometry(1.6, 1.6, 90, 16, 1, true);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffd23f, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false,
+    });
+    this.beacon = new THREE.Mesh(geo, mat);
+    this.beacon.visible = false;
+    this.scene.add(this.beacon);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2.2, 3.2, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.12;
+    this.marker = ring;
+    this.marker.visible = false;
+    this.scene.add(this.marker);
+  }
+
+  available() {
+    return MISSIONS.filter((m) => !this.completed.has(m.id));
+  }
+
+  start(id) {
     const def = MISSIONS.find((m) => m.id === id);
-    if (!def || this.done.has(id) || this.active) return false;
-    this.active = { def, step: 0, waitLeft: 0 };
-    this.setupStep(game);
-    game.toast(`Job started: ${def.name} — $${def.pay}`);
-    game.sounds.click();
+    if (!def || this.completed.has(id)) return false;
+    this.active = { def, stepIndex: 0 };
+    if (def.startStars) this.onStartStars?.(def.startStars);
+    this.showStep();
     return true;
   }
 
-  setupStep(game) {
-    const step = this.currentStep();
-    if (!step) return;
-    if (step.type === 'steal') {
-      // Park the target car at the step position.
-      const mesh = buildCarMesh(step.car ?? 'comet', 0xc0392b);
-      const car = new Car(mesh, step.car ?? 'comet', step.pos[0], step.pos[1], Math.PI / 2);
-      car.isParked = true;
-      car.missionCar = true;
-      this.missionCar = car;
-      game.traffic.cars.push(car);
-      this.scene.add(mesh);
-    }
+  // The step the player is currently on.
+  get step() {
+    return this.active ? this.active.def.steps[this.active.stepIndex] : null;
   }
 
-  currentStep() {
-    if (!this.active) return null;
-    return this.active.def.steps[this.active.step] ?? null;
+  get label() {
+    if (!this.active) return 'Press M to pick a job from The Duchess.';
+    const s = this.step;
+    return `${this.active.def.name} — ${s.label}`;
   }
 
-  currentTarget() {
-    const step = this.currentStep();
-    if (!step) return null;
-    return { x: step.pos[0], z: step.pos[1], label: step.label };
+  // Distance in metres from the player to the current objective, for the HUD.
+  distanceTo(player) {
+    const o = this.objectivePos();
+    if (!o || !player) return null;
+    return Math.round(Math.hypot(player.pos.x - o.x, player.pos.z - o.z));
   }
 
-  label() {
-    if (!this.active) return 'Free Roam — press 1-4 for a job, E to steal a car';
-    const step = this.currentStep();
-    return `${this.active.def.name} — ${step ? step.label : ''}`;
-  }
-
-  advance(game) {
-    this.active.step++;
-    if (this.active.step >= this.active.def.steps.length) {
-      const def = this.active.def;
-      this.done.add(def.id);
-      game.player.cash += def.pay;
-      game.toast(`Job complete: ${def.name} — +$${def.pay}`);
-      game.sounds.pickup();
-      game.save();
-      this.active = null;
-      this.beacon.visible = false;
-      this.marker.visible = false;
-      return;
-    }
-    this.active.waitLeft = 0;
-    this.setupStep(game);
-    game.sounds.click();
-  }
-
-  update(dt, game) {
-    this.pulse += dt;
-    const target = this.currentTarget();
-    if (target) {
+  showStep() {
+    const s = this.step;
+    if (!s) { this.beacon.visible = false; this.marker.visible = false; return; }
+    if (s.at) {
+      this.beacon.position.set(s.at[0], 45, s.at[1]);
       this.beacon.visible = true;
+      this.marker.position.set(s.at[0], 0.12, s.at[1]);
       this.marker.visible = true;
-      this.beacon.position.set(target.x, 75, target.z);
-      this.marker.position.set(target.x, 8 + Math.sin(this.pulse * 2) * 0.8, target.z);
-      this.marker.rotation.y = this.pulse;
-      this.beacon.material.opacity = 0.26 + Math.sin(this.pulse * 2) * 0.06;
     } else {
       this.beacon.visible = false;
       this.marker.visible = false;
     }
-    if (!this.active) return;
-    const step = this.currentStep();
-    const p = game.player;
-    const dx = p.x - step.pos[0];
-    const dz = p.z - step.pos[1];
-    const dist = Math.hypot(dx, dz);
-    if (step.type === 'goto') {
-      const radius = step.inCar ? 7 : 5;
-      if (dist < radius && (!step.inCar || p.inCar)) this.advance(game);
-    } else if (step.type === 'pickup') {
-      if (dist < (step.radius ?? 4)) {
-        if (step.heat) game.addHeat(step.heat);
-        game.toast('Picked up the case — run!');
-        this.advance(game);
-      }
-    } else if (step.type === 'steal') {
-      if (p.inCar && p.car && p.car.missionCar) {
-        game.toast('Got it. Now deliver it.');
-        this.advance(game);
-      }
-    } else if (step.type === 'wait') {
-      if (dist < 6) {
-        this.active.waitLeft += dt;
-        if (this.active.waitLeft >= (step.seconds ?? 5)) {
-          game.toast('Fixed. Drive it to the Garage.');
-          this.advance(game);
-        }
-      } else {
-        this.active.waitLeft = 0;
+  }
+
+  // Called every frame with the player's state. Returns a cash payout
+  // when a mission completes, else 0.
+  update(player, playerCar, missionCars) {
+    if (!this.active) return 0;
+    const s = this.step;
+    if (!s) return 0;
+    if (s.kind === 'goto') {
+      const d = Math.hypot(player.pos.x - s.at[0], player.pos.z - s.at[1]);
+      if (d < 5) this.advance();
+    } else if (s.kind === 'steal') {
+      this.targetCar = missionCars[s.car] || null;
+      if (playerCar && playerCar === this.targetCar) this.advance();
+    } else if (s.kind === 'deliver') {
+      // ONLY the mission's own target car counts. Any other car — even
+      // the right model in another colour — does not advance the step.
+      if (playerCar && this.targetCar && playerCar === this.targetCar) {
+        const d = Math.hypot(player.pos.x - s.at[0], player.pos.z - s.at[1]);
+        if (d < 6) this.advance();
       }
     }
+    // keep the beacon over the target car while stealing
+    if (s.kind === 'steal' && this.targetCar) {
+      this.beacon.position.set(this.targetCar.pos.x, 45, this.targetCar.pos.z);
+      this.beacon.visible = true;
+      this.marker.position.set(this.targetCar.pos.x, 0.12, this.targetCar.pos.z);
+      this.marker.visible = true;
+    }
+    // mission complete?
+    if (this.active && this.active.stepIndex >= this.active.def.steps.length) {
+      const def = this.active.def;
+      this.completed.add(def.id);
+      this.active = null;
+      this.targetCar = null;
+      this.beacon.visible = false;
+      this.marker.visible = false;
+      this.onComplete?.(def);
+      return def.pay;
+    }
+    return 0;
+  }
+
+  advance() {
+    if (!this.active) return;
+    this.active.stepIndex += 1;
+    this.onStep?.(this.step ? this.step.label : 'Job done');
+    this.showStep();
+  }
+
+  cancel() {
+    this.active = null;
+    this.targetCar = null;
+    this.beacon.visible = false;
+    this.marker.visible = false;
+  }
+
+  // Minimap marker position for the current objective, or null.
+  objectivePos() {
+    if (!this.active) return null;
+    const s = this.step;
+    if (!s) return null;
+    if (s.at) return { x: s.at[0], z: s.at[1] };
+    if (s.kind === 'steal' && this.targetCar) return { x: this.targetCar.pos.x, z: this.targetCar.pos.z };
+    return null;
   }
 }

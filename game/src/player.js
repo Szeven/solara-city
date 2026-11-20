@@ -1,228 +1,93 @@
-// Solara City — the player: on foot, in a car, shooting, health, cash.
-import * as THREE from 'three';
-import { PLAYER, COMBAT, WANTED, CAR } from './config.js';
-import { clamp } from './random.js';
+// The player on foot: a simple visible figure (body, head, cap) that
+// walks and runs camera-relative, collides with buildings, and can be
+// hurt by police. Driving is handled by vehicles.js; this module owns
+// only the on-foot state.
+
+import * as THREE from '../vendor/three.module.min.js';
+import { PLAYER } from './config.js';
 
 export class Player {
-  constructor(scene, x, z) {
-    this.scene = scene;
-    this.x = x;
-    this.z = z;
-    this.yaw = Math.PI; // facing the city from the west edge
-    this.pitch = 0;
-    this.health = PLAYER.health;
-    this.cash = 0;
-    this.ammo = COMBAT.pistolAmmo;
-    this.reserve = COMBAT.pistolReserve;
-    this.inCar = false;
-    this.car = null;
-    this.fireTimer = 0;
-    this.reloadTimer = 0;
-    this.dead = false;
+  constructor(scene) {
+    this.pos = new THREE.Vector3(10, 0, 10);
+    this.heading = Math.PI; // facing north (-z) at spawn
+    this.health = PLAYER.maxHealth;
     this.speed = 0;
-    // A simple visible body so the player sees themself in third person.
-    const body = new THREE.Group();
-    const shirt = new THREE.MeshLambertMaterial({ color: 0x2e86c1 });
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.32), shirt);
-    torso.position.y = 1.05;
-    torso.castShadow = true;
-    body.add(torso);
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 10, 8),
-      new THREE.MeshLambertMaterial({ color: 0xe8b98a })
-    );
-    head.position.y = 1.62;
-    head.castShadow = true;
-    body.add(head);
-    const legs = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.7, 0.24),
-      new THREE.MeshLambertMaterial({ color: 0x2c3e50 })
-    );
-    legs.position.y = 0.35;
-    body.add(legs);
-    this.body = body;
-    this.tracers = [];
-    this.raycaster = new THREE.Raycaster();
-    this.raycaster.far = COMBAT.pistolRange;
+    this.moving = false;
+    this.inCar = null;
+
+    const group = new THREE.Group();
+    const jacket = new THREE.MeshLambertMaterial({ color: 0x2e6f9e });
+    const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
+    const denim = new THREE.MeshLambertMaterial({ color: 0x2b3a55 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.95, 10), jacket);
+    body.position.y = 1.05;
+    group.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), skin);
+    head.position.y = 1.72;
+    group.add(head);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.12, 12), new THREE.MeshLambertMaterial({ color: 0xffd23f }));
+    cap.position.y = 1.9;
+    group.add(cap);
+    const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.6, 8), denim);
+    legL.position.set(-0.16, 0.3, 0);
+    group.add(legL);
+    const legR = legL.clone();
+    legR.position.x = 0.16;
+    group.add(legR);
+    this.legs = [legL, legR];
+    this.mesh = group;
+    this.mesh.position.copy(this.pos);
+    scene.add(this.mesh);
   }
 
-  eyePos() {
-    return new THREE.Vector3(this.x, PLAYER.eyeHeight, this.z);
+  reset(x, z) {
+    this.pos.set(x, 0, z);
+    this.heading = Math.PI;
+    this.health = PLAYER.maxHealth;
+    this.inCar = null;
+    this.mesh.visible = true;
+    this.mesh.position.copy(this.pos);
   }
 
-  forward() {
-    return { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
-  }
-
-  syncBody() {
-    this.body.position.set(this.x, 0, this.z);
-    this.body.rotation.y = this.yaw + Math.PI;
-    this.body.visible = !this.inCar;
-  }
-
-  damage(amount, game) {
-    if (this.dead) return;
-    this.health -= amount;
-    if (this.health <= 0) {
-      this.health = 0;
-      this.dead = true;
-      game.wasted();
+  // Move on foot. camYaw is the camera's yaw; input axes are camera-relative.
+  update(dt, input, camYaw, world) {
+    if (this.inCar) { this.moving = false; this.speed = 0; return; }
+    const { f, s } = input.axes();
+    const target = input.run ? PLAYER.runSpeed : PLAYER.walkSpeed;
+    const wishX = Math.sin(camYaw) * -f + Math.cos(camYaw) * s;
+    const wishZ = Math.cos(camYaw) * -f + Math.sin(camYaw) * -s;
+    const len = Math.hypot(wishX, wishZ);
+    this.moving = len > 0.01;
+    const want = this.moving ? target : 0;
+    this.speed += (want - this.speed) * Math.min(1, dt * 10);
+    if (this.moving) {
+      const nx = wishX / len, nz = wishZ / len;
+      this.pos.x += nx * this.speed * dt;
+      this.pos.z += nz * this.speed * dt;
+      this.heading = Math.atan2(nx, nz);
+      // walk-cycle swing on the legs, plus a small body bob so the run reads
+      const swing = Math.sin(performance.now() * 0.014) * 0.5;
+      this.legs[0].rotation.x = swing;
+      this.legs[1].rotation.x = -swing;
+      this.mesh.position.y = Math.abs(Math.sin(performance.now() * 0.014)) * 0.06;
+    } else {
+      this.legs[0].rotation.x = 0;
+      this.legs[1].rotation.x = 0;
+      this.mesh.position.y = 0;
     }
+    world.collide(this.pos, PLAYER.radius);
+    this.mesh.position.copy(this.pos);
+    this.mesh.rotation.y = this.heading;
+  }
+
+  hurt(amount) {
+    this.health = Math.max(0, this.health - amount);
+    return this.health <= 0;
   }
 
   heal(amount) {
-    this.health = clamp(this.health + amount, 0, PLAYER.health);
+    this.health = Math.min(PLAYER.maxHealth, this.health + amount);
   }
 
-  // --- on-foot movement ---
-  updateOnFoot(dt, game) {
-    const input = game.input;
-    const f = this.forward();
-    const r = { x: -f.z, z: f.x };
-    let mx = 0;
-    let mz = 0;
-    if (input.down('KeyW')) { mx += f.x; mz += f.z; }
-    if (input.down('KeyS')) { mx -= f.x; mz -= f.z; }
-    if (input.down('KeyD')) { mx += r.x; mz += r.z; }
-    if (input.down('KeyA')) { mx -= r.x; mz -= r.z; }
-    const len = Math.hypot(mx, mz);
-    const running = input.down('ShiftLeft') || input.down('ShiftRight');
-    const speed = running ? PLAYER.runSpeed : PLAYER.walkSpeed;
-    this.speed = len > 0 ? speed : 0;
-    if (len > 0) {
-      mx /= len;
-      mz /= len;
-      this.x += mx * speed * dt;
-      this.z += mz * speed * dt;
-      game.city.resolveCircle(this, PLAYER.radius);
-    }
-    // Face the movement direction in third person.
-    if (len > 0) this.bodyYaw = Math.atan2(mx, mz);
-    this.syncBody();
-  }
-
-  // --- shooting ---
-  tryFire(game) {
-    if (this.inCar || this.reloadTimer > 0 || this.fireTimer > 0) return;
-    if (this.ammo <= 0) {
-      this.startReload(game);
-      return;
-    }
-    this.fireTimer = COMBAT.fireInterval;
-    this.ammo--;
-    game.sounds.gunshot();
-    game.addHeat(WANTED.shootHeat);
-    game.peds.scare(this.x, this.z, 25);
-    // Hitscan from the camera through the crosshair.
-    const camera = game.camera;
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const targets = [];
-    for (const ped of game.peds.peds) {
-      if (!ped.dead) targets.push(ped.mesh);
-    }
-    for (const off of game.police.officers) targets.push(off.mesh);
-    for (const car of game.traffic.cars) targets.push(car.mesh);
-    const hits = this.raycaster.intersectObjects(targets, true);
-    let end;
-    if (hits.length > 0) {
-      const hit = hits[0];
-      end = hit.point.clone();
-      this.applyHit(hit.object, game);
-    } else {
-      end = this.raycaster.ray.at(COMBAT.pistolRange, new THREE.Vector3());
-    }
-    // Tracer: a fading line from the muzzle to the hit point.
-    const start = camera.position.clone();
-    const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
-    const line = new THREE.Line(
-      geo,
-      new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.9 })
-    );
-    this.scene.add(line);
-    this.tracers.push({ line, ttl: 0.08 });
-    if (this.ammo === 0) this.startReload(game);
-  }
-
-  applyHit(object, game) {
-    // Walk up to the object that owns game state.
-    let o = object;
-    while (o) {
-      if (o.userData && o.userData.pedRef) break;
-      o = o.parent;
-    }
-    // Simpler: match by mesh identity against peds / officers / cars.
-    for (const ped of game.peds.peds) {
-      if (ped.mesh === object || ped.mesh.children.includes(object) || this.isDescendant(ped.mesh, object)) {
-        if (!ped.dead) {
-          game.peds.kill(ped);
-          game.addHeat(WANTED.killHeat);
-          game.toast('You hit a civilian — the cops noticed.');
-        }
-        return;
-      }
-    }
-    for (const off of game.police.officers) {
-      if (this.isDescendant(off.mesh, object)) {
-        game.addHeat(WANTED.copKillHeat);
-        game.toast('You shot an officer — 2 stars!');
-        return;
-      }
-    }
-    for (const car of game.traffic.cars) {
-      if (this.isDescendant(car.mesh, object)) {
-        game.addHeat(WANTED.shootHeat * 0.5);
-        return;
-      }
-    }
-  }
-
-  isDescendant(root, node) {
-    let o = node;
-    while (o) {
-      if (o === root) return true;
-      o = o.parent;
-    }
-    return false;
-  }
-
-  startReload(game) {
-    if (this.reloadTimer > 0 || this.reserve <= 0 || this.ammo === COMBAT.pistolAmmo) return;
-    this.reloadTimer = COMBAT.reloadSeconds;
-    game.sounds.click();
-  }
-
-  finishReload() {
-    const need = COMBAT.pistolAmmo - this.ammo;
-    const take = Math.min(need, this.reserve);
-    this.ammo += take;
-    this.reserve -= take;
-  }
-
-  updateTracers(dt) {
-    for (const t of this.tracers) {
-      t.ttl -= dt;
-      t.line.material.opacity = Math.max(0, t.ttl / 0.08) * 0.9;
-    }
-    while (this.tracers.length && this.tracers[0].ttl <= 0) {
-      const t = this.tracers.shift();
-      this.scene.remove(t.line);
-      t.line.geometry.dispose();
-      t.line.material.dispose();
-    }
-  }
-
-  update(dt, game) {
-    this.fireTimer = Math.max(0, this.fireTimer - dt);
-    if (this.reloadTimer > 0) {
-      this.reloadTimer -= dt;
-      if (this.reloadTimer <= 0) this.finishReload();
-    }
-    this.updateTracers(dt);
-    if (this.inCar && this.car) {
-      this.x = this.car.x;
-      this.z = this.car.z;
-      this.speed = Math.abs(this.car.speed);
-      this.syncBody();
-    }
-  }
+  get dead() { return this.health <= 0; }
 }

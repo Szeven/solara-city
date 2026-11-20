@@ -1,15 +1,19 @@
-// Solara City dev server: serves game/ on http://localhost:8322 so the
-// game can be played and screenshotted in a desktop browser.
-// Node 22, standard library only.
+// Solara City dev server (Node 22, standard library only).
+// Serves game/ as static files with no-store headers so the browser never
+// caches a stale build while you iterate:
+//   node serve.ts
+// then open http://127.0.0.1:8080 in a desktop browser.
+
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), 'game');
-const port = Number(process.env.PORT ?? 8322);
+const here = fileURLToPath(new URL('.', import.meta.url));
+const gameDir = resolve(join(here, 'game'));
+const port = 8080;
 
-const mime: Record<string, string> = {
+const types: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -19,26 +23,27 @@ const mime: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
 };
 
 const server = createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  let path = decodeURIComponent(url.pathname);
-  if (path === '/') path = '/index.html';
-  const file = join(root, path);
-  if (!file.startsWith(root) || !existsSync(file)) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
+  const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+  let rel = decodeURIComponent(url.pathname);
+  if (rel === '/') rel = '/index.html';
+  const file = normalize(join(gameDir, rel));
+  if (!file.startsWith(gameDir) || !existsSync(file) || !statSync(file).isFile()) {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('not found\n');
     return;
   }
-  const body = readFileSync(file);
   res.writeHead(200, {
-    'content-type': mime[extname(file)] ?? 'application/octet-stream',
+    'content-type': types[extname(file)] ?? 'application/octet-stream',
     'cache-control': 'no-store',
   });
-  res.end(body);
+  res.end(readFileSync(file));
 });
 
-server.listen(port, () => {
-  console.log(`Solara City dev server: http://localhost:${port}/ (serving game/)`);
+server.listen(port, '127.0.0.1', () => {
+  console.log(`Solara City dev server: http://127.0.0.1:${port}/`);
 });
