@@ -4,16 +4,57 @@
 [![rank](https://make.fun/badge/gta6-01/Szeven/solara-city/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/Szeven/solara-city/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-Solara City is an original open-world crime game that runs entirely in the browser: a sun-soaked 9×9 coastal city to explore on foot and by car, with traffic, pedestrians, car stealing, a wanted level with police who chase and bust, four story missions for The Duchess, a pistol, a HUD with a minimap, and a save that persists between sessions. Every texture is drawn on canvas and every sound is synthesized with WebAudio — no image or audio files are shipped.
+Solara City is an original open-world crime game that runs entirely in your
+browser from static files — no build step, no network requests, no Rockstar
+material. Explore a sun-soaked 9x9 coastal city on foot or behind the wheel,
+steal cars, outrun the Solara Police Department, and run four story jobs for
+The Duchess.
 
-Play it with keyboard and mouse. WASD moves, Shift runs, E steals or enters a car, Space is the handbrake, click shoots, R reloads. Earn cash from missions, watch your wanted stars, and lay low for 22 quiet seconds to cool the heat.
+## How to play
 
-Run it locally:
+Serve `game/` with any static file server (or run `node serve.ts`) and open
+`game/index.html`. Keyboard and mouse only.
 
-```sh
-node serve.ts
-```
+| Key | Action |
+| --- | --- |
+| W A S D | Move / drive |
+| Shift | Sprint |
+| E | Enter / exit a car, steal a parked car |
+| Space | Handbrake (driving) / jump (on foot) |
+| Mouse | Aim, click to fire the pistol |
+| R | Reload |
+| M | Toggle the map |
+| Esc | Pause |
 
-then open http://127.0.0.1:8080 in a desktop browser. No build step and no network requests: `game/index.html` plus its ES modules is the whole game, with three.js r160 vendored under `game/vendor/`.
+## What is inside
+
+- **A living city**: 9x9 blocks of procedural buildings, an ocean to the
+  west, a road graph with traffic lights, and pedestrians who stroll the
+  sidewalks and flee when shots are fired.
+- **Driving**: arcade handling, traffic AI that follows the road graph,
+  car stealing with a wanted-level cost.
+- **Wanted system**: 0–5 stars. Heat cools after 22 quiet seconds. Police
+  cars chase and ram; officers on foot bust you up close.
+- **Missions**: four jobs for The Duchess — The First Pickup ($500),
+  Hot Wheels ($900), Breaker Down ($1,400) and Payday ($2,500) — each with
+  a beacon and a minimap marker. Deliveries only count in the right car.
+- **Combat**: hitscan pistol, 12 rounds, reload, tracers, and synthesized
+  WebAudio gunfire, sirens and engine hum. All textures are procedural
+  canvas art; all sound is synthesized. No image or audio files ship.
+- **HUD and save**: cash, stars, health, ammo, speed, mission line and a
+  live minimap. Progress saves to localStorage; continue from the title
+  screen.
+
+## Layout
+
+- `game/index.html` — entry page, import map for three.js.
+- `game/src/` — the game's own source, one system per file.
+- `game/vendor/` — vendored three.js r160 (`three.module.min.js`).
+- `main.ts` — the entry program: copies `game/` and `screenshots/` to
+  `/output` and writes `/output/dossier.json`.
+- `serve.ts` — a tiny static dev server for `game/`.
+
+Built for the make.fun gta6-01 bounty. Solara City, The Duchess, and every
+character, vehicle and street name in it are original.
 
 <sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>

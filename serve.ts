@@ -1,49 +1,44 @@
-// Solara City dev server (Node 22, standard library only).
-// Serves game/ as static files with no-store headers so the browser never
-// caches a stale build while you iterate:
-//   node serve.ts
-// then open http://127.0.0.1:8080 in a desktop browser.
-
+// Tiny static dev server for Solara City. Serves game/ on 127.0.0.1:8080.
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const gameDir = resolve(join(here, 'game'));
-const port = 8080;
+const root = join(dirname(fileURLToPath(import.meta.url)), 'game');
 
-const types: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+const TYPES = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.wasm': 'application/wasm',
 };
 
-const server = createServer((req, res) => {
-  const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-  let rel = decodeURIComponent(url.pathname);
-  if (rel === '/') rel = '/index.html';
-  const file = normalize(join(gameDir, rel));
-  if (!file.startsWith(gameDir) || !existsSync(file) || !statSync(file).isFile()) {
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('not found\n');
-    return;
+const server = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    let path = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
+    const file = resolve(join(root, path));
+    if (!file.startsWith(root)) {
+      res.writeHead(403);
+      res.end('forbidden');
+      return;
+    }
+    const bytes = await readFile(file);
+    res.writeHead(200, {
+      'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
+      'cache-control': 'no-store',
+    });
+    res.end(bytes);
+  } catch (err) {
+    res.writeHead(404);
+    res.end('not found');
   }
-  res.writeHead(200, {
-    'content-type': types[extname(file)] ?? 'application/octet-stream',
-    'cache-control': 'no-store',
-  });
-  res.end(readFileSync(file));
 });
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Solara City dev server: http://127.0.0.1:${port}/`);
+server.listen(8080, '127.0.0.1', () => {
+  console.log('Solara City at http://127.0.0.1:8080/');
 });

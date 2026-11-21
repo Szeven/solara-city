@@ -1,152 +1,218 @@
-// The Duchess's four jobs. A mission is a list of steps; each step is
-// goto (reach a marker), steal (get into a named target car) or deliver
-// (park the target car at a marker). Deliver advances ONLY when the
-// player is driving the mission's own target car — arriving in any other
-// car does not count.
+// Four story jobs for The Duchess. Each mission is a chain of steps with a
+// gold beacon and a minimap marker. Deliveries only count in the right car:
+// the deliver step requires car === this.targetCar.
+import * as THREE from 'three';
+import { spawnParkedCar } from './vehicles.js';
 
-import * as THREE from '../vendor/three.module.min.js';
-import { MISSIONS } from './config.js';
+const MISSION_DEFS = [
+  {
+    id: 1,
+    name: 'The First Pickup',
+    reward: 500,
+    intro: 'The Duchess: pick up my package at Sunset Pier and bring it to the hideout.',
+    steps: [
+      { type: 'pickup', pos: { x: -235, z: 120 }, label: 'Pick up the package at Sunset Pier (E)' },
+      { type: 'goto', pos: { x: 180, z: -180 }, label: 'Deliver the package to the hideout' },
+    ],
+  },
+  {
+    id: 2,
+    name: 'Hot Wheels',
+    reward: 900,
+    intro: 'The Duchess: a gold Comet is parked by the marina. Bring me THAT car.',
+    steps: [
+      { type: 'steal', pos: { x: -210, z: -40 }, label: 'Steal the gold Comet (E to enter)' },
+      { type: 'deliver', pos: { x: 150, z: 150 }, label: 'Deliver the gold Comet to the garage' },
+    ],
+  },
+  {
+    id: 3,
+    name: 'Breaker Down',
+    reward: 1400,
+    intro: 'The Duchess: my courier broke down on Coral Way. Fix it, then drive it home.',
+    steps: [
+      { type: 'repair', pos: { x: 25, z: -125 }, label: 'Repair the courier car (hold E)' },
+      { type: 'deliver', pos: { x: 150, z: 150 }, label: 'Drive the courier car to the garage' },
+    ],
+  },
+  {
+    id: 4,
+    name: 'Payday',
+    reward: 2500,
+    intro: 'The Duchess: grab the cash from the bank. The cops will not like it.',
+    steps: [
+      { type: 'pickup', pos: { x: -75, z: 75 }, label: 'Grab the cash bag at Solara Bank (E)' },
+      { type: 'goto', pos: { x: 180, z: -180 }, label: 'Escape to the hideout — lose the cops or outrun them' },
+    ],
+  },
+];
 
 export class Missions {
-  constructor(scene) {
+  constructor(scene, city, rng, hooks) {
     this.scene = scene;
-    this.completed = new Set();
-    this.active = null; // { def, stepIndex }
-    this.beacon = null;
-    this.marker = null;
-    this.targetCar = null; // the Car the active mission wants
-    this.onComplete = null; // (missionDef) => void
-    this.onStep = null; // (label) => void
-    this.buildBeacon();
-  }
+    this.city = city;
+    this.rng = rng;
+    this.hooks = hooks; // { onCash, onMessage, onMissionDone, setWanted }
+    this.index = 0;
+    this.step = 0;
+    this.active = false;
+    this.done = false;
+    this.targetCar = null;
+    this.repairT = 0;
+    this.hintT = 0;
 
-  buildBeacon() {
-    // a tall glowing pillar + a ring on the ground, moved to each step
-    const geo = new THREE.CylinderGeometry(1.6, 1.6, 90, 16, 1, true);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffd23f, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false,
+    const beaconMat = new THREE.MeshBasicMaterial({
+      color: 0xffc93c, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false,
     });
-    this.beacon = new THREE.Mesh(geo, mat);
+    this.beacon = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 42, 18, 1, true), beaconMat);
     this.beacon.visible = false;
-    this.scene.add(this.beacon);
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(2.2, 3.2, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.12;
-    this.marker = ring;
-    this.marker.visible = false;
-    this.scene.add(this.marker);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffc93c, transparent: true, opacity: 0.7 });
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.8, 28), ringMat);
+    this.ring.rotation.x = -Math.PI / 2;
+    this.ring.visible = false;
+    scene.add(this.beacon);
+    scene.add(this.ring);
   }
 
-  available() {
-    return MISSIONS.filter((m) => !this.completed.has(m.id));
+  currentDef() {
+    return MISSION_DEFS[this.index] ?? null;
   }
 
-  start(id) {
-    const def = MISSIONS.find((m) => m.id === id);
-    if (!def || this.completed.has(id)) return false;
-    this.active = { def, stepIndex: 0 };
-    if (def.startStars) this.onStartStars?.(def.startStars);
-    this.showStep();
-    return true;
+  currentStep() {
+    const def = this.currentDef();
+    return def ? def.steps[this.step] ?? null : null;
   }
 
-  // The step the player is currently on.
-  get step() {
-    return this.active ? this.active.def.steps[this.active.stepIndex] : null;
+  label() {
+    if (this.done) return 'All jobs done for The Duchess. Free roam — Solara is yours.';
+    if (!this.active) return 'Talk to The Duchess: pick a job on the title screen.';
+    const step = this.currentStep();
+    const def = this.currentDef();
+    return step ? `Job ${this.index + 1}/4 · ${def.name} — ${step.label}` : '';
   }
 
-  get label() {
-    if (!this.active) return 'Press M to pick a job from The Duchess.';
-    const s = this.step;
-    return `${this.active.def.name} — ${s.label}`;
+  // Back to the start of the story, for a fresh playthrough.
+  reset() {
+    this.index = 0;
+    this.step = 0;
+    this.active = false;
+    this.done = false;
+    this.targetCar = null;
+    this.repairT = 0;
+    this.beacon.visible = false;
+    this.ring.visible = false;
   }
 
-  // Distance in metres from the player to the current objective, for the HUD.
-  distanceTo(player) {
-    const o = this.objectivePos();
-    if (!o || !player) return null;
-    return Math.round(Math.hypot(player.pos.x - o.x, player.pos.z - o.z));
+  markerPos() {
+    const step = this.currentStep();
+    return step ? step.pos : null;
   }
 
-  showStep() {
-    const s = this.step;
-    if (!s) { this.beacon.visible = false; this.marker.visible = false; return; }
-    if (s.at) {
-      this.beacon.position.set(s.at[0], 45, s.at[1]);
-      this.beacon.visible = true;
-      this.marker.position.set(s.at[0], 0.12, s.at[1]);
-      this.marker.visible = true;
-    } else {
+  start(index) {
+    this.index = index;
+    this.step = 0;
+    this.active = true;
+    this.done = false;
+    const def = this.currentDef();
+    if (this.hooks.onMessage) this.hooks.onMessage(def.intro);
+    if (def.id === 2) {
+      this.targetCar = spawnParkedCar(this.scene, this.city, this.rng, 0xd4af37);
+      this.targetCar.pos.set(-210, 0, -40);
+      this.targetCar.heading = Math.PI / 2;
+      this.targetCar.syncMesh();
+    }
+    if (def.id === 3) {
+      this.targetCar = spawnParkedCar(this.scene, this.city, this.rng, 0x2ecc71);
+      this.targetCar.pos.set(25, 0, -125);
+      this.targetCar.heading = 0;
+      this.targetCar.syncMesh();
+      this.targetCar.broken = true;
+    }
+    if (def.id === 4 && this.hooks.setWanted) this.hooks.setWanted(3);
+    this.placeBeacon();
+  }
+
+  placeBeacon() {
+    const step = this.currentStep();
+    if (!step) {
       this.beacon.visible = false;
-      this.marker.visible = false;
+      this.ring.visible = false;
+      return;
     }
-  }
-
-  // Called every frame with the player's state. Returns a cash payout
-  // when a mission completes, else 0.
-  update(player, playerCar, missionCars) {
-    if (!this.active) return 0;
-    const s = this.step;
-    if (!s) return 0;
-    if (s.kind === 'goto') {
-      const d = Math.hypot(player.pos.x - s.at[0], player.pos.z - s.at[1]);
-      if (d < 5) this.advance();
-    } else if (s.kind === 'steal') {
-      this.targetCar = missionCars[s.car] || null;
-      if (playerCar && playerCar === this.targetCar) this.advance();
-    } else if (s.kind === 'deliver') {
-      // ONLY the mission's own target car counts. Any other car — even
-      // the right model in another colour — does not advance the step.
-      if (playerCar && this.targetCar && playerCar === this.targetCar) {
-        const d = Math.hypot(player.pos.x - s.at[0], player.pos.z - s.at[1]);
-        if (d < 6) this.advance();
-      }
-    }
-    // keep the beacon over the target car while stealing
-    if (s.kind === 'steal' && this.targetCar) {
-      this.beacon.position.set(this.targetCar.pos.x, 45, this.targetCar.pos.z);
-      this.beacon.visible = true;
-      this.marker.position.set(this.targetCar.pos.x, 0.12, this.targetCar.pos.z);
-      this.marker.visible = true;
-    }
-    // mission complete?
-    if (this.active && this.active.stepIndex >= this.active.def.steps.length) {
-      const def = this.active.def;
-      this.completed.add(def.id);
-      this.active = null;
-      this.targetCar = null;
-      this.beacon.visible = false;
-      this.marker.visible = false;
-      this.onComplete?.(def);
-      return def.pay;
-    }
-    return 0;
+    this.beacon.position.set(step.pos.x, 21, step.pos.z);
+    this.ring.position.set(step.pos.x, 0.1, step.pos.z);
+    this.beacon.visible = true;
+    this.ring.visible = true;
   }
 
   advance() {
+    const def = this.currentDef();
+    this.step += 1;
+    if (this.step >= def.steps.length) {
+      this.hooks.onCash(def.reward);
+      this.hooks.onMessage(`${def.name} complete — $${def.reward} from The Duchess.`);
+      if (this.hooks.onMissionDone) this.hooks.onMissionDone(def.id);
+      this.index += 1;
+      this.step = 0;
+      this.targetCar = null;
+      if (this.index >= MISSION_DEFS.length) {
+        this.active = false;
+        this.done = true;
+        this.beacon.visible = false;
+        this.ring.visible = false;
+        return;
+      }
+      this.start(this.index);
+      return;
+    }
+    this.placeBeacon();
+  }
+
+  update(dt, player, input) {
     if (!this.active) return;
-    this.active.stepIndex += 1;
-    this.onStep?.(this.step ? this.step.label : 'Job done');
-    this.showStep();
-  }
+    const step = this.currentStep();
+    if (!step) return;
+    const dx = player.pos.x - step.pos.x;
+    const dz = player.pos.z - step.pos.z;
+    const dist = Math.hypot(dx, dz);
+    this.hintT -= dt;
 
-  cancel() {
-    this.active = null;
-    this.targetCar = null;
-    this.beacon.visible = false;
-    this.marker.visible = false;
-  }
-
-  // Minimap marker position for the current objective, or null.
-  objectivePos() {
-    if (!this.active) return null;
-    const s = this.step;
-    if (!s) return null;
-    if (s.at) return { x: s.at[0], z: s.at[1] };
-    if (s.kind === 'steal' && this.targetCar) return { x: this.targetCar.pos.x, z: this.targetCar.pos.z };
-    return null;
+    if (step.type === 'goto') {
+      if (dist < 6) this.advance();
+    } else if (step.type === 'pickup') {
+      if (dist < 4 && input.pressed('KeyE')) {
+        this.hooks.onMessage('Package secured.');
+        this.advance();
+      }
+    } else if (step.type === 'steal') {
+      if (player.inCar && player.car === this.targetCar) {
+        this.advance();
+      } else if (dist < 6 && this.hintT <= 0) {
+        this.hintT = 3;
+        this.hooks.onMessage('That gold Comet — get in it (E).');
+      }
+    } else if (step.type === 'repair') {
+      if (dist < 5 && input.down('KeyE')) {
+        this.repairT += dt;
+        if (this.repairT > 3) {
+          this.repairT = 0;
+          if (this.targetCar) this.targetCar.broken = false;
+          this.hooks.onMessage('Courier fixed. Drive it to the garage.');
+          this.advance();
+        }
+      } else {
+        this.repairT = Math.max(0, this.repairT - dt);
+      }
+    } else if (step.type === 'deliver') {
+      if (dist < 7) {
+        // The delivery only counts in the exact car the job names.
+        if (player.inCar && player.car === this.targetCar) {
+          this.advance();
+        } else if (this.hintT <= 0) {
+          this.hintT = 3;
+          this.hooks.onMessage('Wrong car — The Duchess wants the job car, not this one.');
+        }
+      }
+    }
   }
 }

@@ -1,160 +1,134 @@
-// Procedural canvas textures for Solara City. Nothing is loaded from a
-// file: every facade, road, sand and sign is drawn once at boot into a
-// canvas and handed to three.js as a CanvasTexture.
+// Procedural canvas textures for Solara City. Every texture is drawn at load
+// time, so the game ships no image files at all.
+import * as THREE from 'three';
 
-import * as THREE from '../vendor/three.module.min.js';
-
-function canvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  return c;
+function canvasTexture(size, draw, repeatX = 1, repeatY = 1) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  draw(canvas.getContext('2d'), size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatY);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }
 
-// Deterministic pseudo-random from an integer seed (mulberry32).
-export function rng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function toTexture(c) {
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
-}
-
-// A building facade: base colour, a grid of windows (some lit), a darker
-// ground floor with a door and a shop awning stripe.
-export function facadeTexture(seed, base) {
-  const rand = rng(seed);
-  const c = canvas(256, 512);
-  const g = c.getContext('2d');
-  g.fillStyle = base;
-  g.fillRect(0, 0, 256, 512);
-  // subtle vertical grime
-  for (let i = 0; i < 40; i++) {
-    g.fillStyle = `rgba(0,0,0,${0.02 + rand() * 0.05})`;
-    g.fillRect(rand() * 256, 0, 2 + rand() * 6, 512);
-  }
-  // windows: 6 columns x 12 rows
-  for (let row = 0; row < 12; row++) {
-    for (let col = 0; col < 6; col++) {
-      const x = 14 + col * 40;
-      const y = 14 + row * 36;
-      const lit = rand() < 0.28;
-      g.fillStyle = lit ? '#ffd98a' : (rand() < 0.5 ? '#20262e' : '#3a4a5c');
-      g.fillRect(x, y, 26, 22);
-      g.fillStyle = 'rgba(255,255,255,0.12)';
-      g.fillRect(x, y, 26, 3);
+// A building facade: warm plaster with a grid of windows, a few lit.
+export function facadeTexture(rng, base, lit) {
+  return canvasTexture(256, (ctx, s) => {
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    for (let y = 0; y < s; y += 8) ctx.fillRect(0, y, s, 1);
+    const cols = 6;
+    const rows = 10;
+    const w = s / cols;
+    const h = s / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * w + w * 0.18;
+        const y = r * h + h * 0.2;
+        ctx.fillStyle = rng.chance(lit) ? '#ffd98a' : '#20303e';
+        ctx.fillRect(x, y, w * 0.64, h * 0.55);
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(x, y, w * 0.64, 2);
+      }
     }
-  }
-  // ground floor
-  g.fillStyle = 'rgba(0,0,0,0.35)';
-  g.fillRect(0, 452, 256, 60);
-  g.fillStyle = '#11151a';
-  g.fillRect(108, 468, 40, 44);
-  g.fillStyle = ['#ff2e88', '#2ee6ff', '#ffd23f'][seed % 3];
-  g.fillRect(0, 448, 256, 6);
-  // rooftop plant: a small AC box and a railing line at the very top
-  g.fillStyle = 'rgba(0,0,0,0.3)';
-  g.fillRect(20, 0, 60, 10);
-  g.fillStyle = 'rgba(255,255,255,0.15)';
-  g.fillRect(0, 10, 256, 2);
-  return toTexture(c);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(0, s - 10, s, 10);
+  });
 }
 
-// Asphalt with a dashed centre line and worn patches.
+// Asphalt with a dashed centre line, tiled along a road segment.
 export function roadTexture() {
-  const c = canvas(128, 128);
-  const g = c.getContext('2d');
-  g.fillStyle = '#2b2f36';
-  g.fillRect(0, 0, 128, 128);
-  const rand = rng(7);
-  for (let i = 0; i < 260; i++) {
-    g.fillStyle = `rgba(255,255,255,${rand() * 0.05})`;
-    g.fillRect(rand() * 128, rand() * 128, 2, 2);
-  }
-  g.fillStyle = '#d8c33a';
-  g.fillRect(62, 8, 4, 44);
-  g.fillRect(62, 72, 4, 44);
-  return toTexture(c);
+  return canvasTexture(256, (ctx, s) => {
+    ctx.fillStyle = '#2b2f36';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 900; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.02 + Math.random() * 0.04})`;
+      ctx.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+    }
+    ctx.fillStyle = '#e8c33a';
+    ctx.fillRect(s / 2 - 3, 0, 6, s);
+    ctx.fillStyle = 'rgba(232,195,58,0.35)';
+    ctx.fillRect(s / 2 - 10, 0, 2, s);
+    ctx.fillRect(s / 2 + 8, 0, 2, s);
+  }, 1, 4);
 }
 
-// Warm sand with speckles and a few shells.
-export function sandTexture() {
-  const c = canvas(256, 256);
-  const g = c.getContext('2d');
-  g.fillStyle = '#e8d29a';
-  g.fillRect(0, 0, 256, 256);
-  const rand = rng(21);
-  for (let i = 0; i < 900; i++) {
-    g.fillStyle = rand() < 0.5 ? 'rgba(120,90,40,0.18)' : 'rgba(255,250,220,0.25)';
-    g.fillRect(rand() * 256, rand() * 256, 2, 2);
-  }
-  return toTexture(c);
+// Pale concrete sidewalk slabs.
+export function sidewalkTexture() {
+  return canvasTexture(256, (ctx, s) => {
+    ctx.fillStyle = '#9aa0a3';
+    ctx.fillRect(0, 0, s, s);
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i <= 4; i++) {
+      ctx.beginPath(); ctx.moveTo((i * s) / 4, 0); ctx.lineTo((i * s) / 4, s); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, (i * s) / 4); ctx.lineTo(s, (i * s) / 4); ctx.stroke();
+    }
+    for (let i = 0; i < 500; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${0.03 + Math.random() * 0.05})`;
+      ctx.fillRect(Math.random() * s, Math.random() * s, 2, 2);
+    }
+  }, 8, 8);
 }
 
-// Ocean: deep blue-green with moving-looking wave streaks baked in.
-export function oceanTexture() {
-  const c = canvas(256, 256);
-  const g = c.getContext('2d');
-  g.fillStyle = '#1d6f8f';
-  g.fillRect(0, 0, 256, 256);
-  const rand = rng(99);
-  for (let i = 0; i < 60; i++) {
-    g.strokeStyle = `rgba(255,255,255,${0.05 + rand() * 0.12})`;
-    g.lineWidth = 1 + rand() * 2;
-    g.beginPath();
-    const y = rand() * 256;
-    g.moveTo(rand() * 100, y);
-    g.bezierCurveTo(80, y + rand() * 12 - 6, 160, y + rand() * 12 - 6, 256, y);
-    g.stroke();
-  }
-  return toTexture(c);
+// Sunlit ocean with slow sparkle.
+export function waterTexture() {
+  return canvasTexture(256, (ctx, s) => {
+    const g = ctx.createLinearGradient(0, 0, s, s);
+    g.addColorStop(0, '#1d7fb8');
+    g.addColorStop(0.5, '#156a9e');
+    g.addColorStop(1, '#1d8fc4');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 240; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.12})`;
+      const w = 6 + Math.random() * 22;
+      ctx.fillRect(Math.random() * s, Math.random() * s, w, 2);
+    }
+  }, 6, 6);
 }
 
-// A glowing neon sign texture with big readable text.
-export function signTexture(text, color) {
-  const c = canvas(512, 128);
-  const g = c.getContext('2d');
-  g.fillStyle = '#0d0d14';
-  g.fillRect(0, 0, 512, 128);
-  g.font = 'bold 64px "Segoe UI", sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.shadowColor = color;
-  g.shadowBlur = 26;
-  g.fillStyle = color;
-  g.fillText(text, 256, 66);
-  g.shadowBlur = 8;
-  g.fillStyle = '#ffffff';
-  g.fillText(text, 256, 66);
-  return toTexture(c);
+// Flat rooftop with a parapet edge and a vent box or two.
+export function roofTexture(rng) {
+  return canvasTexture(128, (ctx, s) => {
+    ctx.fillStyle = '#6f6a63';
+    ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = '#57534d';
+    ctx.fillRect(8, 8, s - 16, s - 16);
+    ctx.fillStyle = '#7d7870';
+    ctx.fillRect(20, 24, 26, 18);
+    ctx.fillRect(78, 60, 22, 22);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(0, 0, s, 6);
+    ctx.fillRect(0, 0, 6, s);
+  });
 }
 
-// A palm frond sprite (drawn once, stamped on planes in the world).
-export function palmTexture() {
-  const c = canvas(128, 128);
-  const g = c.getContext('2d');
-  g.strokeStyle = '#2f7a33';
-  g.lineWidth = 5;
-  g.lineCap = 'round';
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2;
-    g.beginPath();
-    g.moveTo(64, 64);
-    g.quadraticCurveTo(64 + Math.cos(a) * 34, 64 + Math.sin(a) * 34, 64 + Math.cos(a) * 58, 64 + Math.sin(a) * 58 + 12);
-    g.stroke();
-  }
-  g.fillStyle = '#5a3a22';
-  g.beginPath();
-  g.arc(64, 64, 7, 0, Math.PI * 2);
-  g.fill();
-  return toTexture(c);
+// A glowing rooftop sign texture: big letters on a dark panel, used for the
+// SOLARA tower sign in the city centre.
+export function rooftopSignTexture(text, color = '#ffc93c') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#101418';
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 500, 116);
+  ctx.fillStyle = color;
+  ctx.font = 'bold 84px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 256, 68);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
 }

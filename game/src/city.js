@@ -1,258 +1,242 @@
-// Solara City — the city itself: ground, ocean, roads, blocks, buildings,
-// trees, lamps, the road graph traffic drives on, and building colliders.
+// Solara City layout: a 9x9 coastal grid. Roads are 14 m wide on a 50 m
+// pitch at +/-25, +/-75, +/-125, +/-175, +/-225 (never multiples of 50).
+// Blocks are 36 m squares between the roads; the ocean lies to the west.
 import * as THREE from 'three';
-import { CITY, COLORS } from './config.js';
-import { pick, range, rangeInt } from './random.js';
-import { facadeTexture, roadTexture, sidewalkTexture, grassTexture, oceanTexture, sandTexture } from './textures.js';
+import { facadeTexture, roadTexture, sidewalkTexture, waterTexture, roofTexture, rooftopSignTexture } from './textures.js';
+import { makeRng } from './rng.js';
 
-const FACADE_COLORS = ['#b8a88f', '#9fb2c1', '#c1a89b', '#a8b89a', '#b5b0a6', '#8fa3b8', '#c9b18a', '#a89bb0'];
+export const ROADS = [-225, -175, -125, -75, -25, 25, 75, 125, 175, 225];
+export const ROAD_WIDTH = 14;
+export const BLOCK_SIZE = 36;
+export const CITY_HALF = 250;
+export const CITY_SEED = 1337;
 
-export class City {
-  constructor(scene, rng) {
-    this.scene = scene;
-    this.rng = rng;
-    this.colliders = []; // {minX, maxX, minZ, maxZ}
-    this.buildings = [];
-    this.build();
+const BLOCK_CENTERS = [-200, -150, -100, -50, 0, 50, 100, 150, 200];
+
+export function isOnRoad(x, z) {
+  for (const r of ROADS) {
+    if (Math.abs(x - r) < ROAD_WIDTH / 2 + 1.5) return true;
+    if (Math.abs(z - r) < ROAD_WIDTH / 2 + 1.5) return true;
+  }
+  return false;
+}
+
+export function buildCity(scene) {
+  const rng = makeRng(CITY_SEED);
+  const colliders = [];
+  const group = new THREE.Group();
+  group.name = 'city';
+
+  // Ground slab under everything.
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(560, 560),
+    new THREE.MeshLambertMaterial({ color: 0x8f8a80 }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.05;
+  group.add(ground);
+
+  // Ocean to the west of the city edge.
+  const ocean = new THREE.Mesh(
+    new THREE.PlaneGeometry(320, 560),
+    new THREE.MeshLambertMaterial({ map: waterTexture() }),
+  );
+  ocean.rotation.x = -Math.PI / 2;
+  ocean.position.set(-250 - 160, 0.02, 0);
+  group.add(ocean);
+
+  // Beach strip where the city meets the water.
+  const beach = new THREE.Mesh(
+    new THREE.PlaneGeometry(18, 560),
+    new THREE.MeshLambertMaterial({ color: 0xe0c98f }),
+  );
+  beach.rotation.x = -Math.PI / 2;
+  beach.position.set(-259, 0.03, 0);
+  group.add(beach);
+
+  // Road ribbons.
+  const roadMat = new THREE.MeshLambertMaterial({ map: roadTexture() });
+  for (const r of ROADS) {
+    const alongZ = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, 520), roadMat);
+    alongZ.rotation.x = -Math.PI / 2;
+    alongZ.position.set(r, 0.06, 0);
+    group.add(alongZ);
+    const alongX = new THREE.Mesh(new THREE.PlaneGeometry(520, ROAD_WIDTH), roadMat);
+    alongX.rotation.x = -Math.PI / 2;
+    alongX.position.set(0, 0.06, r);
+    group.add(alongX);
   }
 
-  build() {
-    const { scene, rng } = this;
-    // Ground: grass everywhere under the city.
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(520, 520),
-      new THREE.MeshLambertMaterial({ map: grassTexture() })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(0, 0, 0);
-    ground.receiveShadow = true;
-    scene.add(ground);
+  // Sidewalk slabs and buildings, one block at a time.
+  const sidewalkMat = new THREE.MeshLambertMaterial({ map: sidewalkTexture() });
+  const palette = ['#e8d9b0', '#d9b48f', '#c9d4d6', '#e6c2a8', '#d8cfae', '#cbb59a', '#e0d0c0'];
+  for (const bx of BLOCK_CENTERS) {
+    for (const bz of BLOCK_CENTERS) {
+      const slab = new THREE.Mesh(new THREE.PlaneGeometry(BLOCK_SIZE, BLOCK_SIZE), sidewalkMat);
+      slab.rotation.x = -Math.PI / 2;
+      slab.position.set(bx, 0.04, bz);
+      group.add(slab);
 
-    // Ocean to the west, with a sand beach between it and the last road.
-    const ocean = new THREE.Mesh(
-      new THREE.PlaneGeometry(220, 560),
-      new THREE.MeshLambertMaterial({ map: oceanTexture() })
-    );
-    ocean.rotation.x = -Math.PI / 2;
-    ocean.position.set(CITY.oceanX - 108, -0.4, 0);
-    scene.add(ocean);
-    const beach = new THREE.Mesh(
-      new THREE.PlaneGeometry(10, 520),
-      new THREE.MeshLambertMaterial({ map: sandTexture() })
-    );
-    beach.rotation.x = -Math.PI / 2;
-    beach.position.set(CITY.oceanX + 3, 0.02, 0);
-    beach.receiveShadow = true;
-    scene.add(beach);
-
-    // Roads: one asphalt strip per road line, both directions.
-    const roadTex = roadTexture();
-    const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
-    for (const r of CITY.roads) {
-      const ns = new THREE.Mesh(new THREE.PlaneGeometry(CITY.roadWidth, 500), roadMat.clone());
-      ns.material.map = roadTex.clone();
-      ns.material.map.repeat.set(1, 10);
-      ns.material.map.needsUpdate = true;
-      ns.rotation.x = -Math.PI / 2;
-      ns.position.set(r, 0.03, 0);
-      ns.receiveShadow = true;
-      scene.add(ns);
-      const ew = new THREE.Mesh(new THREE.PlaneGeometry(500, CITY.roadWidth), roadMat.clone());
-      ew.material.map = roadTex.clone();
-      ew.material.map.repeat.set(10, 1);
-      ew.material.map.needsUpdate = true;
-      ew.rotation.x = -Math.PI / 2;
-      ew.position.set(0, 0.03, r);
-      ew.receiveShadow = true;
-      scene.add(ew);
-    }
-
-    // Sidewalk slabs under every block, then buildings on them.
-    const walkTex = sidewalkTexture();
-    const walkMat = new THREE.MeshLambertMaterial({ map: walkTex });
-    for (const bx of CITY.blocks) {
-      for (const bz of CITY.blocks) {
-        const slab = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), walkMat);
-        slab.rotation.x = -Math.PI / 2;
-        slab.position.set(bx, 0.02, bz);
-        slab.receiveShadow = true;
-        scene.add(slab);
-      }
-    }
-
-    // Buildings: 1-2 per block, taller near the centre. The plaza
-    // block (0,0) stays open as a park.
-    for (const bx of CITY.blocks) {
-      for (const bz of CITY.blocks) {
-        if (bx === 0 && bz === 0) {
-          this.buildPark(bx, bz);
-          continue;
-        }
-        const downtown = 1 - (Math.abs(bx) + Math.abs(bz)) / 400;
-        const n = rng() < 0.45 ? 1 : 2;
-        for (let i = 0; i < n; i++) {
-          const w = range(rng, 10, 15);
-          const d = range(rng, 10, 15);
-          const h = range(rng, 8, 12) + downtown * range(rng, 8, 30);
-          const ox = n === 1 ? 0 : (i === 0 ? -8 : 8);
-          const oz = n === 1 ? 0 : (i === 0 ? 8 : -8);
-          const x = bx + ox;
-          const z = bz + oz;
-          const mat = new THREE.MeshLambertMaterial({
-            map: facadeTexture(rangeInt(rng, 1, 99999), pick(rng, FACADE_COLORS)),
-          });
-          const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-          b.position.set(x, h / 2, z);
-          b.castShadow = true;
-          b.receiveShadow = true;
-          scene.add(b);
-          // A flat roof cap so the top is not a stretched facade.
-          const roof = new THREE.Mesh(
-            new THREE.BoxGeometry(w + 0.4, 0.4, d + 0.4),
-            new THREE.MeshLambertMaterial({ color: 0x4a4a48 })
+      // The centre block is Plaza Solara: a fountain square, no buildings.
+      if (bx === 0 && bz === 0) {
+        const rim = new THREE.Mesh(
+          new THREE.CylinderGeometry(6, 6.6, 1.1, 20),
+          new THREE.MeshLambertMaterial({ color: 0xb8b0a0 }),
+        );
+        rim.position.set(0, 0.55, 0);
+        group.add(rim);
+        const pool = new THREE.Mesh(
+          new THREE.CylinderGeometry(5.2, 5.2, 0.4, 20),
+          new THREE.MeshLambertMaterial({ map: waterTexture() }),
+        );
+        pool.position.set(0, 1.0, 0);
+        group.add(pool);
+        const jet = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.5, 0.9, 3.2, 10),
+          new THREE.MeshLambertMaterial({ color: 0xd8d2c4 }),
+        );
+        jet.position.set(0, 1.6, 0);
+        group.add(jet);
+        colliders.push({ minX: -6.6, maxX: 6.6, minZ: -6.6, maxZ: 6.6 });
+        for (const [benchX, benchZ] of [[-12, -12], [12, -12], [-12, 12], [12, 12]]) {
+          const bench = new THREE.Mesh(
+            new THREE.BoxGeometry(4, 0.5, 1.2),
+            new THREE.MeshLambertMaterial({ color: 0x7a5c38 }),
           );
-          roof.position.set(x, h + 0.2, z);
-          scene.add(roof);
-          this.colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
-          this.buildings.push({ x, z, w, d, h });
+          bench.position.set(benchX, 0.6, benchZ);
+          group.add(bench);
+        }
+        continue;
+      }
+
+      const kind = rng.pick(['tower', 'tower', 'pair', 'quad', 'low']);
+      const base = rng.pick(palette);
+      const facade = new THREE.MeshLambertMaterial({ map: facadeTexture(rng, base, 0.25) });
+      const roof = new THREE.MeshLambertMaterial({ map: roofTexture(rng) });
+      const place = (cx, cz, w, d, h) => {
+        const mats = [facade, facade, roof, facade, facade, facade];
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
+        mesh.position.set(cx, h / 2, cz);
+        group.add(mesh);
+        colliders.push({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2 });
+      };
+      if (kind === 'tower') {
+        place(bx, bz, rng.range(18, 24), rng.range(18, 24), rng.range(38, 72));
+      } else if (kind === 'pair') {
+        place(bx - 8, bz, 14, 16, rng.range(16, 30));
+        place(bx + 8, bz, 14, 16, rng.range(22, 44));
+      } else if (kind === 'quad') {
+        place(bx - 8, bz - 8, 13, 13, rng.range(10, 18));
+        place(bx + 8, bz - 8, 13, 13, rng.range(10, 20));
+        place(bx - 8, bz + 8, 13, 13, rng.range(10, 16));
+        place(bx + 8, bz + 8, 13, 13, rng.range(12, 22));
+      } else {
+        place(bx, bz, 26, 20, rng.range(8, 14));
+      }
+    }
+  }
+
+  // Streetlights at every other intersection.
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0x3a3f45 });
+  const lampMat = new THREE.MeshLambertMaterial({ color: 0xfff2c0, emissive: 0xccaa55 });
+  for (let i = 0; i < ROADS.length; i += 2) {
+    for (let j = 0; j < ROADS.length; j += 2) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 7, 6), poleMat);
+      pole.position.set(ROADS[i] + 8.5, 3.5, ROADS[j] + 8.5);
+      group.add(pole);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), lampMat);
+      lamp.position.set(ROADS[i] + 8.5, 7.1, ROADS[j] + 8.5);
+      group.add(lamp);
+    }
+  }
+
+  // Palm row along the ocean boulevard.
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x7a5c38 });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x2f8f4e });
+  for (let z = -225; z <= 225; z += 25) {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 7, 6), trunkMat);
+    trunk.position.set(-242, 3.5, z);
+    group.add(trunk);
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(2.4, 0), leafMat);
+    crown.position.set(-242, 8, z);
+    group.add(crown);
+  }
+
+  // The SOLARA sign: a glowing billboard on poles at the plaza's north edge,
+  // so it reads from the title shot and from the streets around the plaza.
+  const signPoleMat = new THREE.MeshLambertMaterial({ color: 0x3a3f45 });
+  for (const px of [-11, 11]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 9, 8), signPoleMat);
+    pole.position.set(px, 4.5, -14);
+    group.add(pole);
+  }
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(24, 6),
+    new THREE.MeshBasicMaterial({ map: rooftopSignTexture('SOLARA') }),
+  );
+  sign.position.set(0, 11.5, -14);
+  group.add(sign);
+  const signBack = sign.clone();
+  signBack.rotation.y = Math.PI;
+  signBack.position.set(0, 11.5, -14.2);
+  group.add(signBack);
+
+  scene.add(group);
+
+  // Road graph: intersections of the road lines, for traffic AI.
+  const nodes = [];
+  for (const x of ROADS) {
+    for (const z of ROADS) nodes.push({ x, z });
+  }
+  return {
+    group,
+    colliders,
+    nodes,
+    nearestNode(x, z) {
+      let best = nodes[0];
+      let bestD = Infinity;
+      for (const n of nodes) {
+        const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = n;
         }
       }
-    }
+      return best;
+    },
+    randomSidewalkPoint(rng2) {
+      const bx = rng2.pick(BLOCK_CENTERS);
+      const bz = rng2.pick(BLOCK_CENTERS);
+      const edge = rng2.int(0, 3);
+      const t = rng2.range(-15, 15);
+      if (edge === 0) return { x: bx + t, z: bz - 17 };
+      if (edge === 1) return { x: bx + t, z: bz + 17 };
+      if (edge === 2) return { x: bx - 17, z: bz + t };
+      return { x: bx + 17, z: bz + t };
+    },
+  };
+}
 
-    // Trees along sidewalks and in the park.
-    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2f });
-    const leafMat = new THREE.MeshLambertMaterial({ color: 0x3f7d33 });
-    for (let i = 0; i < 110; i++) {
-      const bx = pick(rng, CITY.blocks);
-      const bz = pick(rng, CITY.blocks);
-      const x = bx + range(rng, -17, 17);
-      const z = bz + range(rng, -17, 17);
-      if (this.insideBuilding(x, z, 2)) continue;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.25, 2.2, 6), trunkMat);
-      trunk.position.set(x, 1.1, z);
-      trunk.castShadow = true;
-      scene.add(trunk);
-      const leaves = new THREE.Mesh(new THREE.SphereGeometry(range(rng, 1.4, 2.2), 8, 6), leafMat);
-      leaves.position.set(x, 3.2, z);
-      leaves.castShadow = true;
-      scene.add(leaves);
-    }
-
-    // Street lamps at intersections.
-    const poleMat = new THREE.MeshLambertMaterial({ color: 0x2c2c2c });
-    const lampMat = new THREE.MeshLambertMaterial({ color: 0xffe9a8, emissive: 0x554411 });
-    for (const rx of CITY.roads) {
-      for (const rz of CITY.roads) {
-        if (rng() < 0.5) continue;
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 5, 6), poleMat);
-        pole.position.set(rx + 8, 2.5, rz + 8);
-        scene.add(pole);
-        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), lampMat);
-        lamp.position.set(rx + 8, 5.1, rz + 8);
-        scene.add(lamp);
+// Push a circle (x, z, radius) out of every building AABB it overlaps.
+// Returns true when a push happened.
+export function resolveBuildingCollision(colliders, pos, radius) {
+  let hit = false;
+  for (const c of colliders) {
+    const cx = Math.max(c.minX, Math.min(pos.x, c.maxX));
+    const cz = Math.max(c.minZ, Math.min(pos.z, c.maxZ));
+    const dx = pos.x - cx;
+    const dz = pos.z - cz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < radius * radius) {
+      hit = true;
+      if (d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        pos.x = cx + (dx / d) * radius;
+        pos.z = cz + (dz / d) * radius;
+      } else {
+        pos.x = c.maxX + radius;
       }
     }
   }
-
-  buildPark(bx, bz) {
-    const { scene, rng } = this;
-    // A round fountain in the middle of Central Plaza.
-    const rim = new THREE.Mesh(
-      new THREE.CylinderGeometry(5, 5.4, 1, 20),
-      new THREE.MeshLambertMaterial({ color: 0xb0aca0 })
-    );
-    rim.position.set(bx, 0.5, bz);
-    rim.castShadow = true;
-    scene.add(rim);
-    const water = new THREE.Mesh(
-      new THREE.CylinderGeometry(4.4, 4.4, 0.3, 20),
-      new THREE.MeshLambertMaterial({ color: 0x2f7ea8 })
-    );
-    water.position.set(bx, 0.95, bz);
-    scene.add(water);
-    this.colliders.push({ minX: bx - 5.4, maxX: bx + 5.4, minZ: bz - 5.4, maxZ: bz + 5.4 });
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      const x = bx + Math.cos(a) * 13;
-      const z = bz + Math.sin(a) * 13;
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.18, 0.25, 2.2, 6),
-        new THREE.MeshLambertMaterial({ color: 0x6b4a2f })
-      );
-      trunk.position.set(x, 1.1, z);
-      scene.add(trunk);
-      const leaves = new THREE.Mesh(
-        new THREE.SphereGeometry(1.8, 8, 6),
-        new THREE.MeshLambertMaterial({ color: 0x3f7d33 })
-      );
-      leaves.position.set(x, 3.2, z);
-      scene.add(leaves);
-    }
-  }
-
-  insideBuilding(x, z, pad = 0) {
-    for (const c of this.colliders) {
-      if (x > c.minX - pad && x < c.maxX + pad && z > c.minZ - pad && z < c.maxZ + pad) return true;
-    }
-    return false;
-  }
-
-  // Push a circle (player / car) out of every building AABB it overlaps.
-  resolveCircle(pos, radius) {
-    for (const c of this.colliders) {
-      const cx = Math.max(c.minX, Math.min(pos.x, c.maxX));
-      const cz = Math.max(c.minZ, Math.min(pos.z, c.maxZ));
-      const dx = pos.x - cx;
-      const dz = pos.z - cz;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < radius * radius) {
-        if (d2 > 1e-6) {
-          const d = Math.sqrt(d2);
-          pos.x = cx + (dx / d) * radius;
-          pos.z = cz + (dz / d) * radius;
-        } else {
-          // Dead centre: push out along the smallest penetration axis.
-          const pl = pos.x - c.minX;
-          const pr = c.maxX - pos.x;
-          const pt = pos.z - c.minZ;
-          const pb = c.maxZ - pos.z;
-          const m = Math.min(pl, pr, pt, pb);
-          if (m === pl) pos.x = c.minX - radius;
-          else if (m === pr) pos.x = c.maxX + radius;
-          else if (m === pt) pos.z = c.minZ - radius;
-          else pos.z = c.maxZ + radius;
-        }
-      }
-    }
-    // The ocean is a wall: nobody drives into the sea.
-    if (pos.x < CITY.oceanX + 2) pos.x = CITY.oceanX + 2;
-    if (pos.x > CITY.bounds) pos.x = CITY.bounds;
-    if (pos.z < -CITY.bounds) pos.z = -CITY.bounds;
-    if (pos.z > CITY.bounds) pos.z = CITY.bounds;
-  }
-
-  // --- road graph helpers (traffic + police drive on this) ---
-
-  randomIntersection(rng) {
-    return { x: pick(rng, CITY.roads), z: pick(rng, CITY.roads) };
-  }
-
-  // Snap a point to the nearest road centreline.
-  nearestRoadPoint(x, z) {
-    let bestX = CITY.roads[0];
-    let bestZ = CITY.roads[0];
-    for (const r of CITY.roads) {
-      if (Math.abs(r - x) < Math.abs(bestX - x)) bestX = r;
-      if (Math.abs(r - z) < Math.abs(bestZ - z)) bestZ = r;
-    }
-    if (Math.abs(bestX - x) <= Math.abs(bestZ - z)) return { x: bestX, z, axis: 'x' };
-    return { x, z: bestZ, axis: 'z' };
-  }
-
-  isOnRoad(x, z, margin = 8) {
-    for (const r of CITY.roads) {
-      if (Math.abs(x - r) < margin || Math.abs(z - r) < margin) return true;
-    }
-    return false;
-  }
+  return hit;
 }

@@ -1,93 +1,126 @@
-// The player on foot: a simple visible figure (body, head, cap) that
-// walks and runs camera-relative, collides with buildings, and can be
-// hurt by police. Driving is handled by vehicles.js; this module owns
-// only the on-foot state.
-
-import * as THREE from '../vendor/three.module.min.js';
-import { PLAYER } from './config.js';
+// The player on foot and behind the wheel. Walk/run with a jump, steal any
+// stopped car with E, and step out the same way.
+import * as THREE from 'three';
+import { resolveBuildingCollision } from './city.js';
 
 export class Player {
-  constructor(scene) {
-    this.pos = new THREE.Vector3(10, 0, 10);
-    this.heading = Math.PI; // facing north (-z) at spawn
-    this.health = PLAYER.maxHealth;
-    this.speed = 0;
-    this.moving = false;
-    this.inCar = null;
+  constructor(scene, x = 0, z = 0) {
+    this.scene = scene;
+    this.health = 100;
+    this.cash = 0;
+    this.pos = new THREE.Vector3(x, 0, z);
+    this.velY = 0;
+    this.heading = 0;
+    this.inCar = false;
+    this.car = null;
+    this.walkPhase = 0;
 
     const group = new THREE.Group();
-    const jacket = new THREE.MeshLambertMaterial({ color: 0x2e6f9e });
+    const jacket = new THREE.MeshLambertMaterial({ color: 0x0e7c7b });
+    const pants = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
     const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
-    const denim = new THREE.MeshLambertMaterial({ color: 0x2b3a55 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.95, 10), jacket);
-    body.position.y = 1.05;
-    group.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), skin);
-    head.position.y = 1.72;
-    group.add(head);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.12, 12), new THREE.MeshLambertMaterial({ color: 0xffd23f }));
-    cap.position.y = 1.9;
-    group.add(cap);
-    const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.6, 8), denim);
-    legL.position.set(-0.16, 0.3, 0);
-    group.add(legL);
-    const legR = legL.clone();
-    legR.position.x = 0.16;
-    group.add(legR);
-    this.legs = [legL, legR];
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.8, 0.24), pants);
+    legs.position.y = 0.4;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.32), jacket);
+    torso.position.y = 1.12;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 8), skin);
+    head.position.y = 1.66;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.23, 0.1, 10), new THREE.MeshLambertMaterial({ color: 0xffc93c }));
+    cap.position.y = 1.84;
+    group.add(legs, torso, head, cap);
     this.mesh = group;
     this.mesh.position.copy(this.pos);
     scene.add(this.mesh);
   }
 
-  reset(x, z) {
+  enterCar(car) {
+    this.inCar = true;
+    this.car = car;
+    car.parked = false;
+    this.mesh.visible = false;
+  }
+
+  // Put the player back on foot at a spot: used after a bust and by saves.
+  respawn(x, z) {
+    if (this.inCar) this.exitCar();
     this.pos.set(x, 0, z);
-    this.heading = Math.PI;
-    this.health = PLAYER.maxHealth;
-    this.inCar = null;
+    this.mesh.position.copy(this.pos);
+    this.mesh.visible = true;
+    this.health = 100;
+  }
+
+  get isMoving() {
+    if (this.inCar) return this.car ? Math.abs(this.car.speed) > 0.5 : false;
+    return false;
+  }
+
+  exitCar() {
+    if (!this.car) return;
+    const f = this.car.forward();
+    this.pos.set(this.car.pos.x - f.z * 2.2, 0, this.car.pos.z + f.x * 2.2);
     this.mesh.visible = true;
     this.mesh.position.copy(this.pos);
+    this.inCar = false;
+    this.car = null;
   }
 
-  // Move on foot. camYaw is the camera's yaw; input axes are camera-relative.
-  update(dt, input, camYaw, world) {
-    if (this.inCar) { this.moving = false; this.speed = 0; return; }
-    const { f, s } = input.axes();
-    const target = input.run ? PLAYER.runSpeed : PLAYER.walkSpeed;
-    const wishX = Math.sin(camYaw) * -f + Math.cos(camYaw) * s;
-    const wishZ = Math.cos(camYaw) * -f + Math.sin(camYaw) * -s;
-    const len = Math.hypot(wishX, wishZ);
-    this.moving = len > 0.01;
-    const want = this.moving ? target : 0;
-    this.speed += (want - this.speed) * Math.min(1, dt * 10);
-    if (this.moving) {
-      const nx = wishX / len, nz = wishZ / len;
-      this.pos.x += nx * this.speed * dt;
-      this.pos.z += nz * this.speed * dt;
-      this.heading = Math.atan2(nx, nz);
-      // walk-cycle swing on the legs, plus a small body bob so the run reads
-      const swing = Math.sin(performance.now() * 0.014) * 0.5;
-      this.legs[0].rotation.x = swing;
-      this.legs[1].rotation.x = -swing;
-      this.mesh.position.y = Math.abs(Math.sin(performance.now() * 0.014)) * 0.06;
-    } else {
-      this.legs[0].rotation.x = 0;
-      this.legs[1].rotation.x = 0;
-      this.mesh.position.y = 0;
+  update(dt, input, city, cameraYaw, nearbyCars, onSteal) {
+    if (this.inCar) {
+      if (!this.car) {
+        this.inCar = false;
+        return;
+      }
+      const mv = input.moveVector();
+      const brake = input.down('Space');
+      this.car.drive(dt, mv.z, -mv.x, brake);
+      resolveBuildingCollision(city.colliders, this.car.pos, 2.2);
+      this.car.syncMesh();
+      this.pos.copy(this.car.pos);
+      this.heading = this.car.heading;
+      if (input.pressed('KeyE')) this.exitCar();
+      return;
     }
-    world.collide(this.pos, PLAYER.radius);
+
+    const mv = input.moveVector();
+    const running = input.down('ShiftLeft') || input.down('ShiftRight');
+    const speed = running ? 7.5 : 4.2;
+    const sin = Math.sin(cameraYaw);
+    const cos = Math.cos(cameraYaw);
+    const mx = mv.x * cos - mv.z * sin;
+    const mz = mv.x * sin + mv.z * cos;
+    this.pos.x += mx * speed * dt;
+    this.pos.z += mz * speed * dt;
+    if (mv.x !== 0 || mv.z !== 0) {
+      this.heading = Math.atan2(mx, mz);
+      this.walkPhase += dt * speed * 2.4;
+    }
+    // Jump with a little gravity.
+    if (input.pressed('Space') && this.pos.y <= 0.01) this.velY = 6.5;
+    this.velY -= 18 * dt;
+    this.pos.y = Math.max(0, this.pos.y + this.velY * dt);
+    if (this.pos.y === 0) this.velY = 0;
+    this.pos.x = Math.max(-256, Math.min(256, this.pos.x));
+    this.pos.z = Math.max(-256, Math.min(256, this.pos.z));
+    resolveBuildingCollision(city.colliders, this.pos, 0.6);
     this.mesh.position.copy(this.pos);
-    this.mesh.rotation.y = this.heading;
-  }
+    this.mesh.rotation.y = -this.heading;
+    this.mesh.rotation.z = Math.sin(this.walkPhase) * 0.05;
 
-  hurt(amount) {
-    this.health = Math.max(0, this.health - amount);
-    return this.health <= 0;
+    if (input.pressed('KeyE')) {
+      let best = null;
+      let bestD = 3.4;
+      for (const car of nearbyCars) {
+        if (car.broken) continue;
+        const d = Math.hypot(car.pos.x - this.pos.x, car.pos.z - this.pos.z);
+        if (d < bestD && Math.abs(car.speed) < 1.5) {
+          bestD = d;
+          best = car;
+        }
+      }
+      if (best) {
+        if (best.parked && onSteal) onSteal(best);
+        this.enterCar(best);
+      }
+    }
   }
-
-  heal(amount) {
-    this.health = Math.min(PLAYER.maxHealth, this.health + amount);
-  }
-
-  get dead() { return this.health <= 0; }
 }

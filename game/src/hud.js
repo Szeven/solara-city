@@ -1,115 +1,111 @@
-// HUD and minimap. The DOM shows cash, stars, health, ammo, speed and
-// the current mission line; the minimap canvas draws the road grid, the
-// player, police, traffic and the mission objective, north-up.
-
-import { CITY, WANTED } from './config.js';
+// HUD for Solara City: cash, wanted stars, health, ammo, speed, mission line,
+// messages, and a live minimap drawn on a 2D canvas.
+import { ROADS } from './city.js';
 
 export class Hud {
   constructor() {
-    this.cashEl = document.getElementById('cash');
-    this.starsEl = document.getElementById('stars');
-    this.healthFill = document.getElementById('healthfill');
-    this.missionEl = document.getElementById('mission');
-    this.speedEl = document.getElementById('speed');
-    this.ammoEl = document.getElementById('ammo');
-    this.toastEl = document.getElementById('toast');
-    this.map = document.getElementById('minimap');
-    this.mapCtx = this.map.getContext('2d');
-    this.toastTimer = null;
-    this.lastCash = -1;
-    this.lastStars = -1;
+    this.el = {
+      cash: document.getElementById('cash'),
+      stars: document.getElementById('stars'),
+      healthFill: document.getElementById('health-fill'),
+      ammo: document.getElementById('ammo'),
+      speed: document.getElementById('speed'),
+      mission: document.getElementById('mission-line'),
+      message: document.getElementById('message'),
+      minimap: document.getElementById('minimap'),
+      crosshair: document.getElementById('crosshair'),
+    };
+    this.mapCtx = this.el.minimap.getContext('2d');
+    this.messageT = 0;
+    // Full-screen red flash for damage, created here so the page needs no
+    // extra markup for it.
+    this.damageEl = document.createElement('div');
+    this.damageEl.style.cssText = 'position:fixed;inset:0;z-index:15;pointer-events:none;background:radial-gradient(ellipse at center, transparent 55%, rgba(255,0,0,0.45) 100%);opacity:0;transition:opacity .3s;';
+    document.body.appendChild(this.damageEl);
   }
 
-  toast(text, ms = 2600) {
-    this.toastEl.textContent = text;
-    this.toastEl.classList.remove('hidden');
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.toastEl.classList.add('hidden'), ms);
+  showDamage() {
+    this.damageEl.style.opacity = '1';
+    setTimeout(() => {
+      this.damageEl.style.opacity = '0';
+    }, 180);
   }
 
-  update(state) {
-    if (state.cash !== this.lastCash) {
-      this.cashEl.childNodes[0].textContent = `$${state.cash.toLocaleString('en-US')}`;
-      this.lastCash = state.cash;
-    }
-    if (state.stars !== this.lastStars) {
-      let html = '';
-      for (let i = 0; i < WANTED.maxStars; i++) {
-        html += i < state.stars ? '★' : '<span class="off">★</span>';
-      }
-      this.starsEl.innerHTML = html;
-      this.lastStars = state.stars;
-    }
-    this.healthFill.style.width = `${Math.max(0, state.health)}%`;
-    this.healthFill.style.background = state.health > 50 ? '#37d67a' : state.health > 25 ? '#ffd23f' : '#e5484d';
-    // wanted heat as a thin bar under the stars (title attribute for hover)
-    this.starsEl.title = state.stars > 0 ? `Wanted: ${state.stars} star${state.stars > 1 ? 's' : ''} — lay low to cool off` : 'Clean — no heat';
-    this.missionEl.innerHTML = state.missionHtml;
-    this.speedEl.textContent = state.inCar ? `${Math.round(Math.abs(state.speed) * 2.4)} km/h` : '';
-    this.ammoEl.textContent = state.inCar ? '' : `${state.ammo} / ${state.reserve}`;
-    this.drawMap(state);
+  showMessage(text, seconds = 4) {
+    this.el.message.textContent = text;
+    this.el.message.style.opacity = '1';
+    this.messageT = seconds;
   }
 
-  drawMap(state) {
-    const g = this.mapCtx;
-    const S = 168;
-    const scale = S / 540; // world [-270, 270] -> canvas
-    const toX = (x) => S / 2 + x * scale;
-    const toY = (z) => S / 2 + z * scale;
-    g.clearRect(0, 0, S, S);
-    // ocean
-    g.fillStyle = '#1d6f8f';
-    g.fillRect(0, 0, toX(-250), S);
-    // sand
-    g.fillStyle = '#e8d29a';
-    g.fillRect(toX(-258), 0, toX(-250) - toX(-258), S);
-    // land
-    g.fillStyle = '#20242c';
-    g.fillRect(toX(-250), 0, S - toX(-250), S);
-    // roads
-    g.strokeStyle = '#565b66';
-    g.lineWidth = 3;
-    for (const c of CITY.roads) {
-      g.beginPath(); g.moveTo(toX(c), 0); g.lineTo(toX(c), S); g.stroke();
-      g.beginPath(); g.moveTo(0, toY(c)); g.lineTo(S, toY(c)); g.stroke();
+  update(dt, state) {
+    this.el.cash.textContent = `$${state.cash.toLocaleString('en-US')}`;
+    this.el.stars.textContent = '★'.repeat(state.stars) + '☆'.repeat(5 - state.stars);
+    this.el.stars.style.color = state.stars > 0 ? '#ff5252' : '#888888';
+    this.el.healthFill.style.width = `${Math.max(0, state.health)}%`;
+    this.el.healthFill.style.background = state.health > 50 ? '#4caf50' : state.health > 25 ? '#ff9800' : '#f44336';
+    this.el.ammo.textContent = state.reloading ? 'RELOADING…' : `${state.ammo} / ∞`;
+    this.el.speed.textContent = state.inCar ? `${Math.round(state.speedKmh)} km/h` : '';
+    this.el.mission.textContent = state.missionLabel;
+    this.el.crosshair.style.display = state.inCar ? 'none' : 'block';
+    if (this.messageT > 0) {
+      this.messageT -= dt;
+      if (this.messageT <= 0) this.el.message.style.opacity = '0';
     }
-    // mission objective
-    if (state.objective) {
-      g.fillStyle = '#ffd23f';
-      g.beginPath();
-      g.arc(toX(state.objective.x), toY(state.objective.z), 6, 0, Math.PI * 2);
-      g.fill();
-      g.strokeStyle = '#000';
-      g.lineWidth = 2;
-      g.stroke();
+    this.drawMinimap(state);
+  }
+
+  drawMinimap(state) {
+    const ctx = this.mapCtx;
+    const S = 180;
+    const scale = S / 560;
+    const toMap = (x, z) => [S / 2 + x * scale, S / 2 + z * scale];
+    ctx.fillStyle = '#0d2733';
+    ctx.fillRect(0, 0, S, S);
+    // Ocean on the west edge.
+    ctx.fillStyle = '#156a9e';
+    ctx.fillRect(0, 0, (S / 2 - 250 * scale), S);
+    // Roads.
+    ctx.strokeStyle = '#3a3f45';
+    ctx.lineWidth = 4;
+    for (const r of ROADS) {
+      const [x1] = toMap(r, 0);
+      ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, S); ctx.stroke();
+      const [, z1] = toMap(0, r);
+      ctx.beginPath(); ctx.moveTo(0, z1); ctx.lineTo(S, z1); ctx.stroke();
     }
-    // traffic (grey dots)
-    g.fillStyle = 'rgba(200,200,200,0.8)';
-    for (const c of state.traffic) {
-      g.fillRect(toX(c.x) - 1, toY(c.z) - 1, 2, 2);
+    // Mission marker.
+    if (state.missionMarker) {
+      const [mx, mz] = toMap(state.missionMarker.x, state.missionMarker.z);
+      ctx.fillStyle = '#ffc93c';
+      ctx.beginPath(); ctx.arc(mx, mz, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(mx, mz, 9, 0, Math.PI * 2); ctx.stroke();
     }
-    // police (blue/red dots)
-    for (const c of state.police) {
-      g.fillStyle = '#3a86ff';
-      g.beginPath();
-      g.arc(toX(c.x), toY(c.z), 3, 0, Math.PI * 2);
-      g.fill();
+    // Police cars.
+    ctx.fillStyle = '#ff4444';
+    for (const p of state.police) {
+      const [px, pz] = toMap(p.x, p.z);
+      ctx.beginPath(); ctx.arc(px, pz, 3.5, 0, Math.PI * 2); ctx.fill();
     }
-    // player (white triangle, heading up = north)
-    const px = toX(state.player.x), py = toY(state.player.z);
-    g.save();
-    g.translate(px, py);
-    g.rotate(Math.atan2(state.player.headingX, -state.player.headingZ));
-    g.fillStyle = '#ffffff';
-    g.beginPath();
-    g.moveTo(0, -7); g.lineTo(5, 6); g.lineTo(-5, 6); g.closePath();
-    g.fill();
-    g.restore();
-    // view cone edge
-    g.strokeStyle = 'rgba(255,255,255,0.6)';
-    g.lineWidth = 1;
-    g.beginPath();
-    g.arc(px, py, 9, 0, Math.PI * 2);
-    g.stroke();
+    // Traffic cars.
+    ctx.fillStyle = '#ffffff';
+    for (const c of state.cars) {
+      const [cx, cz] = toMap(c.x, c.z);
+      ctx.fillRect(cx - 1.5, cz - 1.5, 3, 3);
+    }
+    // Player arrow.
+    const [px, pz] = toMap(state.player.x, state.player.z);
+    ctx.save();
+    ctx.translate(px, pz);
+    ctx.rotate(Math.atan2(Math.sin(state.heading), Math.cos(state.heading)));
+    ctx.fillStyle = '#4caf50';
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, 6);
+    ctx.lineTo(-5, 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 }
